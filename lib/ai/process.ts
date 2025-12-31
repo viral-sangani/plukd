@@ -36,7 +36,7 @@ export async function classifyContent(
   const prompt = buildClassificationPrompt(content)
 
   const { object } = await generateObject({
-    model: google('gemini-2.0-flash'),
+    model: google('gemini-3-flash-preview'),
     schema: classificationSchema,
     prompt,
   })
@@ -71,7 +71,7 @@ export async function summarizeContent(
   const prompt = buildSummarizationPrompt(content, classification)
 
   const { object } = await generateObject({
-    model: google('gemini-2.5-pro-preview'),
+    model: google('gemini-3-pro-preview'),
     schema: summarizationSchema,
     prompt,
   })

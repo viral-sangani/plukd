@@ -58,15 +58,15 @@ export function TelegramConnectCard() {
   };
 
   return (
-    <div className="bg-[#18181b] border border-[#27272a] rounded-lg p-6">
+    <div className="relative bg-background-muted border border-border rounded-none p-6" data-corners="diagonal">
       {/* Header */}
       <div className="flex items-start gap-4 mb-6">
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#0088cc]/10">
+        <div className="flex h-10 w-10 items-center justify-center rounded-none bg-[#0088cc]/10 border border-[#0088cc]/20">
           <MessageCircle className="h-5 w-5 text-[#0088cc]" />
         </div>
         <div>
-          <h3 className="text-sm font-medium text-[#fafafa]">Connect Telegram</h3>
-          <p className="text-sm text-[#a1a1aa]">
+          <h3 className="text-sm font-mono font-medium text-foreground">Connect Telegram</h3>
+          <p className="text-sm font-mono text-foreground-muted">
             Link your Telegram account to save bookmarks via chat
           </p>
         </div>
@@ -74,22 +74,22 @@ export function TelegramConnectCard() {
 
       {/* Steps */}
       <div className="space-y-3 mb-6">
-        <h4 className="text-sm font-medium text-[#fafafa]">How to connect</h4>
+        <h4 className="text-[10px] font-mono font-medium uppercase tracking-[0.15em] text-foreground-muted">How to connect</h4>
         {steps.map((step) => (
           <div key={step.number} className="flex items-start gap-3">
-            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#27272a] text-xs font-medium text-[#fafafa]">
+            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-none bg-background-emphasis border border-border text-[10px] font-mono font-medium text-foreground">
               {step.number}
             </div>
             <div className="flex-1">
-              <p className="text-sm font-medium text-[#fafafa]">{step.title}</p>
-              <p className="text-xs text-[#71717a]">{step.description}</p>
+              <p className="text-sm font-mono font-medium text-foreground">{step.title}</p>
+              <p className="text-[11px] font-mono text-foreground-muted">{step.description}</p>
             </div>
           </div>
         ))}
       </div>
 
       {/* Bot Link */}
-      <Button className="w-full gap-2 mb-4" asChild>
+      <Button className="w-full gap-2 mb-4 font-mono" asChild>
         <a
           href="https://t.me/PlukdBot"
           target="_blank"
@@ -101,8 +101,8 @@ export function TelegramConnectCard() {
       </Button>
 
       {/* Code Input */}
-      <div className="rounded-lg bg-[#27272a] p-4 mb-4">
-        <p className="text-xs text-[#71717a] mb-3 text-center">
+      <div className="rounded-none bg-background-emphasis border border-border p-4 mb-4">
+        <p className="text-[11px] font-mono text-foreground-muted mb-3 text-center">
           Enter the 6-character code from the bot
         </p>
         <Input
@@ -111,18 +111,18 @@ export function TelegramConnectCard() {
           onChange={(e) => setInputCode(e.target.value.toUpperCase())}
           maxLength={6}
           placeholder="ABC123"
-          className="font-mono text-2xl font-bold tracking-[0.3em] text-center uppercase h-14 bg-[#18181b] border-[#3f3f46] text-[#fafafa] placeholder:text-[#52525b]"
+          className="font-mono text-2xl font-bold tracking-[0.3em] text-center uppercase h-14 bg-background border-border text-foreground placeholder:text-foreground-muted"
         />
       </div>
 
       {error && (
-        <div className="text-sm text-red-400 bg-red-500/10 border border-red-900/50 rounded-md p-3 mb-4">
+        <div className="text-sm font-mono text-red-400 bg-red-500/10 border border-red-900/50 rounded-none p-3 mb-4">
           {error}
         </div>
       )}
 
       <Button
-        className="w-full"
+        className="w-full font-mono"
         onClick={verifyCode}
         disabled={isVerifying || inputCode.length !== 6}
       >

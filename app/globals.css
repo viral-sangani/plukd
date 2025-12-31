@@ -12,11 +12,28 @@
   font-display: swap;
 }
 
+/* JetBrains Mono Font - Orbmarkets style */
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/fonts/JetBrainsMono-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/fonts/JetBrainsMono-Medium.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
 @theme inline {
   /* Font families */
   --font-cal: 'Cal Sans', sans-serif;
   --font-sans: var(--font-inter), 'Inter', system-ui, sans-serif;
-  --font-mono: var(--font-geist-mono);
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, 'Roboto Mono', Menlo, Monaco, monospace;
 
   /* Colors from CSS variables */
   --color-background: var(--background);
@@ -152,59 +169,59 @@
   --sidebar-ring: #18181b;
 }
 
-/* Dark theme (Primary for Plukd) - Pure black zinc palette */
+/* Dark theme (Primary for Plukd) - Orbmarkets-inspired with coral accent */
 .dark {
-  /* Background - zinc palette (pure black) */
-  --background: #09090b;
-  --background-muted: #18181b;
-  --background-subtle: #27272a;
-  --background-emphasis: #3f3f46;
-  --background-elevated: #18181b;
+  /* Background - pure black like orbmarkets (#080808) */
+  --background: #080808;
+  --background-muted: #121212;
+  --background-subtle: #1a1a1a;
+  --background-emphasis: #1f1f1f;
+  --background-elevated: #121212;
   --background-inverted: #fafafa;
 
-  /* Foreground - zinc */
+  /* Foreground - white/gray */
   --foreground: #fafafa;
-  --foreground-secondary: #a1a1aa;
+  --foreground-secondary: #ababab;
   --foreground-muted: #71717a;
 
-  /* Border - zinc */
-  --border: #27272a;
-  --border-subtle: #3f3f46;
-  --border-emphasis: #52525b;
+  /* Border - orbmarkets uses #1f1f1f */
+  --border: #1f1f1f;
+  --border-subtle: #1f1f1f;
+  --border-emphasis: #2a2a2a;
 
-  /* Accent - white on dark */
-  --accent: #fafafa;
-  --accent-hover: #e4e4e7;
-  --accent-muted: #d4d4d8;
-  --accent-foreground: #09090b;
+  /* Accent - coral (orbmarkets exact: #e84326) */
+  --accent: #e84326;
+  --accent-hover: #d63920;
+  --accent-muted: #b32d18;
+  --accent-foreground: #ffffff;
 
-  /* shadcn compatibility - zinc */
-  --card: #09090b;
+  /* shadcn compatibility - updated for coral accent */
+  --card: #080808;
   --card-foreground: #fafafa;
-  --popover: #09090b;
+  --popover: #121212;
   --popover-foreground: #fafafa;
-  --primary: #fafafa;
-  --primary-foreground: #09090b;
-  --secondary: #27272a;
+  --primary: #e84326;
+  --primary-foreground: #ffffff;
+  --secondary: #1a1a1a;
   --secondary-foreground: #fafafa;
-  --muted: #27272a;
+  --muted: #1a1a1a;
   --muted-foreground: #71717a;
   --destructive: #ef4444;
-  --input: #27272a;
-  --ring: #fafafa;
-  --chart-1: #fafafa;
-  --chart-2: #3b82f6;
-  --chart-3: #eab308;
+  --input: #1a1a1a;
+  --ring: #e84326;
+  --chart-1: #e84326;
+  --chart-2: #22c55e;
+  --chart-3: #3b82f6;
   --chart-4: #ef4444;
   --chart-5: #a855f7;
-  --sidebar: #09090b;
+  --sidebar: #080808;
   --sidebar-foreground: #fafafa;
-  --sidebar-primary: #fafafa;
-  --sidebar-primary-foreground: #09090b;
-  --sidebar-accent: #27272a;
+  --sidebar-primary: #e84326;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #1a1a1a;
   --sidebar-accent-foreground: #fafafa;
-  --sidebar-border: #27272a;
-  --sidebar-ring: #fafafa;
+  --sidebar-border: #1f1f1f;
+  --sidebar-ring: #e84326;
 }
 
 @layer base {
@@ -235,4 +252,160 @@
   .text-2xl { letter-spacing: 0.03em; }
   .text-xl { letter-spacing: 0.035em; }
   .text-lg { letter-spacing: 0.045em; }
+
+  /* Section header - orbmarkets style monospace uppercase headers */
+  .section-header {
+    @apply uppercase text-[10px] font-medium text-foreground-muted;
+    font-family: var(--font-mono);
+    letter-spacing: 0.15em;
+  }
+
+  /* Large section header */
+  .section-header-lg {
+    @apply uppercase text-xs font-medium text-foreground-muted;
+    font-family: var(--font-mono);
+    letter-spacing: 0.1em;
+  }
+
+  /* Monospace display text */
+  .font-mono-display {
+    font-family: var(--font-mono);
+    letter-spacing: -0.02em;
+  }
+
+  /* Monospace data text with tabular numbers */
+  .font-mono-data {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0;
+  }
+
+  /* Keyboard shortcut indicator - orbmarkets style */
+  .kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    min-width: 1.5rem;
+    height: 1.25rem;
+    padding: 0 0.375rem;
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    font-weight: 500;
+    color: var(--foreground-muted);
+    background: var(--background-emphasis);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+
+  /* Corner brackets - orbmarkets style decorative corners */
+  [data-corners="all"]:not(.fixed):not([class*="fixed"]) {
+    position: relative;
+  }
+
+  [data-corners="all"]::before {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    pointer-events: none;
+    background:
+      /* Top-left */
+      linear-gradient(to right, var(--accent) 16px, transparent 16px) 0 0,
+      linear-gradient(to bottom, var(--accent) 16px, transparent 16px) 0 0,
+      /* Top-right */
+      linear-gradient(to left, var(--accent) 16px, transparent 16px) 100% 0,
+      linear-gradient(to bottom, var(--accent) 16px, transparent 16px) 100% 0,
+      /* Bottom-left */
+      linear-gradient(to right, var(--accent) 16px, transparent 16px) 0 100%,
+      linear-gradient(to top, var(--accent) 16px, transparent 16px) 0 100%,
+      /* Bottom-right */
+      linear-gradient(to left, var(--accent) 16px, transparent 16px) 100% 100%,
+      linear-gradient(to top, var(--accent) 16px, transparent 16px) 100% 100%;
+    background-size: 16px 2px, 2px 16px;
+    background-repeat: no-repeat;
+  }
+
+  /* Two-corner variant (top-left and bottom-right only) */
+  [data-corners="diagonal"]:not(.fixed):not([class*="fixed"]) {
+    position: relative;
+  }
+
+  [data-corners="diagonal"]::before {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    pointer-events: none;
+    background:
+      /* Top-left */
+      linear-gradient(to right, var(--accent) 16px, transparent 16px) 0 0,
+      linear-gradient(to bottom, var(--accent) 16px, transparent 16px) 0 0,
+      /* Bottom-right */
+      linear-gradient(to left, var(--accent) 16px, transparent 16px) 100% 100%,
+      linear-gradient(to top, var(--accent) 16px, transparent 16px) 100% 100%;
+    background-size: 16px 2px, 2px 16px;
+    background-repeat: no-repeat;
+  }
+
+  /* Accent border - partial top-left corner effect like orbmarkets */
+  .accent-border {
+    position: relative;
+  }
+  .accent-border::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 3px;
+    height: 24px;
+    background: var(--accent);
+    border-radius: 0 0 3px 0;
+  }
+  .accent-border::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 24px;
+    height: 3px;
+    background: var(--accent);
+    border-radius: 0 0 3px 0;
+  }
+
+  /* Accent border for cards - corner effect */
+  .card-accent {
+    @apply relative overflow-hidden;
+  }
+  .card-accent::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 4px;
+    height: 32px;
+    background: var(--accent);
+  }
+  .card-accent::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 32px;
+    height: 4px;
+    background: var(--accent);
+  }
+
+  /* Monospace numbers for data display */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .font-mono-nums {
+    font-variant-numeric: tabular-nums;
+    font-family: var(--font-mono), ui-monospace, SFMono-Regular, monospace;
+  }
+
+  /* Very subtle border for table rows */
+  .border-subtle {
+    border-color: rgba(255, 255, 255, 0.05);
+  }
 }

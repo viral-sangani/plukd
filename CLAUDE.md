@@ -37,11 +37,11 @@ curl "http://localhost:3000/api/telegram/setup"  # Check status
 
 The bookmark processing uses a two-pass AI architecture in `lib/ai/`:
 
-1. **Pass 1 - Classification** (`gemini-2.0-flash`): Fast model for categorization
+1. **Pass 1 - Classification** (`gemini-3-flash-preview`): Fast model for categorization
    - Determines category (35 options), tags (20 options), and content type
    - Located in `lib/ai/process.ts:classifyContent()`
 
-2. **Pass 2 - Summarization** (`gemini-2.5-pro-preview`): Higher quality model
+2. **Pass 2 - Summarization** (`gemini-3-pro-preview`): Higher quality model
    - Generates blurb (2-3 sentences) and detailed summary
    - Uses classification context from Pass 1
    - Located in `lib/ai/process.ts:summarizeContent()`

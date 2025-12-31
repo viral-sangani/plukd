@@ -7,16 +7,20 @@ import { cn } from '@/lib/utils'
 interface CategoryBadgeProps {
   category: Category
   className?: string
+  interactive?: boolean
 }
 
-export function CategoryBadge({ category, className }: CategoryBadgeProps) {
+export function CategoryBadge({ category, className, interactive = false }: CategoryBadgeProps) {
   // Fallback for unknown categories (e.g., old data with deprecated category values)
   const label = CATEGORY_LABELS[category] || formatCategoryFallback(category)
 
   return (
     <span
       className={cn(
-        'inline-flex items-center justify-center rounded-sm px-2 py-1 text-xs font-medium text-white whitespace-nowrap bg-[#262626]',
+        'inline-flex items-center justify-center rounded-none px-2 py-1 text-[10px] font-mono font-medium uppercase tracking-wider whitespace-nowrap',
+        'bg-background-emphasis/50 text-foreground-muted border border-border-subtle',
+        interactive && 'hover:border-accent/50 hover:text-foreground cursor-pointer',
+        'transition-colors',
         className
       )}
     >

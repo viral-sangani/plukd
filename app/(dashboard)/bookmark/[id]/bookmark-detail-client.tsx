@@ -1,19 +1,19 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import {
   ArrowLeft,
   ExternalLink,
-  Sparkles,
-  Brain,
-  Calendar,
-  Tag,
+  Copy,
+  Check,
   Loader2,
   AlertCircle,
   Trash2,
+  Sparkles,
 } from 'lucide-react'
 import { SourceBadge } from '@/components/ui/source-badge'
 import { CategoryBadge } from '@/components/ui/category-badge'
@@ -21,30 +21,42 @@ import { Button } from '@/components/ui/button'
 import { TAG_LABELS } from '@/lib/constants'
 import { useBookmark, useDeleteBookmark } from '@/lib/hooks'
 import { getBookmarkById } from '@/lib/mock-data'
-import { BookmarkMetadataSection } from './bookmark-metadata-section'
-import type { Bookmark } from '@/types'
+import type { Bookmark, RawMetadata } from '@/types'
 
 interface BookmarkDetailClientProps {
   id: string
   initialBookmark?: Bookmark
 }
 
+function getThumbnailUrl(bookmark: Bookmark): string | null {
+  if (bookmark.media_urls && bookmark.media_urls.length > 0) {
+    return bookmark.media_urls[0]
+  }
+  const rawMetadata = bookmark.raw_metadata as RawMetadata | null
+  if (rawMetadata?.og?.image) {
+    return rawMetadata.og.image
+  }
+  return null
+}
+
+function formatDisplayUrl(url: string): string {
+  try {
+    const parsed = new URL(url)
+    return parsed.hostname.replace(/^www\./, '')
+  } catch {
+    return url
+  }
+}
+
 export function BookmarkDetailClient({ id, initialBookmark }: BookmarkDetailClientProps) {
   const router = useRouter()
-  const { data: bookmark, isLoading, isError, error } = useBookmark(id)
+  const [copied, setCopied] = useState(false)
+  const [isRegenerating, setIsRegenerating] = useState(false)
+  const { data: bookmark, isLoading, isError, error, refetch } = useBookmark(id)
   const deleteBookmark = useDeleteBookmark()
 
   // Use fetched data, or initial bookmark from server, or fall back to mock data
   const displayBookmark = bookmark ?? initialBookmark ?? getBookmarkById(id)
-
-  // Show toast on successful load
-  useEffect(() => {
-    if (bookmark) {
-      toast.success('Bookmark loaded', {
-        description: bookmark.title,
-      })
-    }
-  }, [bookmark])
 
   const handleDelete = async () => {
     if (!displayBookmark) return
@@ -60,20 +72,92 @@ export function BookmarkDetailClient({ id, initialBookmark }: BookmarkDetailClie
     }
   }
 
+  const handleCopyUrl = async () => {
+    if (!displayBookmark) return
+    await navigator.clipboard.writeText(displayBookmark.url)
+    setCopied(true)
+    toast.success('URL copied to clipboard')
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  const handleRegenerate = async () => {
+    if (!displayBookmark) return
+
+    setIsRegenerating(true)
+    try {
+      const response = await fetch('/api/bookmarks/process', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ bookmarkId: id }),
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || 'Failed to regenerate summary')
+      }
+
+      toast.success('Regenerating AI summary...', {
+        description: 'This may take a few moments',
+      })
+
+      // Poll for completion by refetching until processing is done
+      const pollForCompletion = async (attempts = 0): Promise<void> => {
+        if (attempts >= 30) {
+          toast.error('Processing is taking longer than expected', {
+            description: 'Please refresh the page to check the status',
+          })
+          setIsRegenerating(false)
+          return
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 2000))
+        const { data: updatedBookmark } = await refetch()
+
+        if (
+          updatedBookmark?.processing_status === 'completed' ||
+          updatedBookmark?.processing_status === 'failed'
+        ) {
+          setIsRegenerating(false)
+          if (updatedBookmark.processing_status === 'completed') {
+            toast.success('AI summary regenerated successfully')
+          } else {
+            toast.error('Failed to regenerate summary', {
+              description: updatedBookmark.processing_error || 'Please try again',
+            })
+          }
+          return
+        }
+
+        return pollForCompletion(attempts + 1)
+      }
+
+      pollForCompletion()
+    } catch (err) {
+      setIsRegenerating(false)
+      toast.error('Failed to regenerate summary', {
+        description: err instanceof Error ? err.message : 'Please try again',
+      })
+    }
+  }
+
   // Loading state
   if (isLoading && !displayBookmark) {
     return (
-      <div className="max-w-3xl mx-auto py-8 px-4 lg:px-6">
+      <div className="max-w-4xl mx-auto py-6 px-4 lg:px-6">
         <Link
           href="/"
-          className="inline-flex items-center gap-2 text-[#a1a1aa] hover:text-[#fafafa] transition-colors mb-8 group"
+          className="inline-flex items-center gap-2 text-sm font-mono text-foreground-muted hover:text-foreground transition-colors mb-6"
         >
-          <ArrowLeft className="size-4 group-hover:-translate-x-1 transition-transform" />
-          <span className="text-sm font-medium">Back to Bookmarks</span>
+          <ArrowLeft className="size-4" />
+          <span>Back</span>
         </Link>
-        <div className="flex items-center justify-center py-24">
-          <Loader2 className="size-8 animate-spin text-[#a1a1aa]" />
-          <span className="ml-3 text-[#a1a1aa]">Loading bookmark...</span>
+        <div className="relative bg-background-muted border border-border rounded-none p-8" data-corners="diagonal">
+          <div className="flex items-center justify-center py-16">
+            <Loader2 className="size-6 animate-spin text-foreground-muted" />
+            <span className="ml-3 text-sm font-mono text-foreground-muted">Loading bookmark...</span>
+          </div>
         </div>
       </div>
     )
@@ -82,29 +166,27 @@ export function BookmarkDetailClient({ id, initialBookmark }: BookmarkDetailClie
   // Error state with no fallback data
   if (isError && !displayBookmark) {
     return (
-      <div className="max-w-3xl mx-auto py-8 px-4 lg:px-6">
+      <div className="max-w-4xl mx-auto py-6 px-4 lg:px-6">
         <Link
           href="/"
-          className="inline-flex items-center gap-2 text-[#a1a1aa] hover:text-[#fafafa] transition-colors mb-8 group"
+          className="inline-flex items-center gap-2 text-sm font-mono text-foreground-muted hover:text-foreground transition-colors mb-6"
         >
-          <ArrowLeft className="size-4 group-hover:-translate-x-1 transition-transform" />
-          <span className="text-sm font-medium">Back to Bookmarks</span>
+          <ArrowLeft className="size-4" />
+          <span>Back</span>
         </Link>
-        <div className="flex flex-col items-center justify-center py-24 text-center">
-          <AlertCircle className="size-12 text-red-500 mb-4" />
-          <h2 className="text-xl font-semibold text-[#fafafa] mb-2">
-            Failed to load bookmark
-          </h2>
-          <p className="text-[#a1a1aa]">
-            {error instanceof Error ? error.message : 'An error occurred'}
-          </p>
-          <Button
-            variant="outline"
-            className="mt-6"
-            onClick={() => router.push('/')}
-          >
-            Return to Bookmarks
-          </Button>
+        <div className="relative bg-background-muted border border-border rounded-none p-8" data-corners="diagonal">
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <AlertCircle className="size-10 text-red-500 mb-4" />
+            <h2 className="text-lg font-mono font-medium text-foreground mb-2">
+              Failed to load bookmark
+            </h2>
+            <p className="text-sm font-mono text-foreground-muted mb-6">
+              {error instanceof Error ? error.message : 'An error occurred'}
+            </p>
+            <Button variant="outline" onClick={() => router.push('/')}>
+              Return to Bookmarks
+            </Button>
+          </div>
         </div>
       </div>
     )
@@ -113,29 +195,27 @@ export function BookmarkDetailClient({ id, initialBookmark }: BookmarkDetailClie
   // No bookmark found
   if (!displayBookmark) {
     return (
-      <div className="max-w-3xl mx-auto py-8 px-4 lg:px-6">
+      <div className="max-w-4xl mx-auto py-6 px-4 lg:px-6">
         <Link
           href="/"
-          className="inline-flex items-center gap-2 text-[#a1a1aa] hover:text-[#fafafa] transition-colors mb-8 group"
+          className="inline-flex items-center gap-2 text-sm font-mono text-foreground-muted hover:text-foreground transition-colors mb-6"
         >
-          <ArrowLeft className="size-4 group-hover:-translate-x-1 transition-transform" />
-          <span className="text-sm font-medium">Back to Bookmarks</span>
+          <ArrowLeft className="size-4" />
+          <span>Back</span>
         </Link>
-        <div className="flex flex-col items-center justify-center py-24 text-center">
-          <AlertCircle className="size-12 text-[#71717a] mb-4" />
-          <h2 className="text-xl font-semibold text-[#fafafa] mb-2">
-            Bookmark not found
-          </h2>
-          <p className="text-[#a1a1aa]">
-            The bookmark you are looking for does not exist.
-          </p>
-          <Button
-            variant="outline"
-            className="mt-6"
-            onClick={() => router.push('/')}
-          >
-            Return to Bookmarks
-          </Button>
+        <div className="relative bg-background-muted border border-border rounded-none p-8" data-corners="diagonal">
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <AlertCircle className="size-10 text-foreground-muted mb-4" />
+            <h2 className="text-lg font-mono font-medium text-foreground mb-2">
+              Bookmark not found
+            </h2>
+            <p className="text-sm font-mono text-foreground-muted mb-6">
+              The bookmark you are looking for does not exist.
+            </p>
+            <Button variant="outline" onClick={() => router.push('/')}>
+              Return to Bookmarks
+            </Button>
+          </div>
         </div>
       </div>
     )
@@ -144,7 +224,6 @@ export function BookmarkDetailClient({ id, initialBookmark }: BookmarkDetailClie
   const {
     title,
     author,
-    author_url,
     source,
     url,
     blurb,
@@ -152,147 +231,229 @@ export function BookmarkDetailClient({ id, initialBookmark }: BookmarkDetailClie
     category,
     tags,
     created_at,
-    raw_metadata,
-    media_urls,
   } = displayBookmark
 
-  // Format date
+  const thumbnailUrl = getThumbnailUrl(displayBookmark)
+
   const formattedDate = new Date(created_at).toLocaleDateString('en-US', {
     year: 'numeric',
-    month: 'long',
+    month: 'short',
     day: 'numeric',
   })
 
   return (
-    <div className="max-w-3xl mx-auto py-8 px-4 lg:px-6">
-      {/* Back Button */}
-      <div className="flex items-center justify-between mb-8">
+    <div className="max-w-4xl mx-auto py-6 px-4 lg:px-6">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
         <Link
           href="/"
-          className="inline-flex items-center gap-2 text-[#a1a1aa] hover:text-[#fafafa] transition-colors group"
+          className="inline-flex items-center gap-2 text-sm font-mono text-foreground-muted hover:text-foreground transition-colors"
         >
-          <ArrowLeft className="size-4 group-hover:-translate-x-1 transition-transform" />
-          <span className="text-sm font-medium">Back to Bookmarks</span>
+          <ArrowLeft className="size-4" />
+          <span>Back</span>
         </Link>
         <Button
           variant="ghost"
           size="icon"
-          className="text-[#71717a] hover:text-red-500 hover:bg-red-500/10"
+          className="group text-foreground-muted hover:text-red-400 hover:bg-red-500/10"
           onClick={handleDelete}
           disabled={deleteBookmark.isPending}
         >
           {deleteBookmark.isPending ? (
             <Loader2 className="size-4 animate-spin" />
           ) : (
-            <Trash2 className="size-4" />
+            <Trash2 className="size-4 transition-colors group-hover:text-red-400" />
           )}
           <span className="sr-only">Delete bookmark</span>
         </Button>
       </div>
 
-      {/* Title Section */}
-      <div className="space-y-4 mb-8">
-        <h1 className="text-3xl font-bold text-[#fafafa] leading-tight tracking-tight">
-          {title}
-        </h1>
-
-        <div className="flex flex-wrap items-center gap-3">
-          {author && (
-            <span className="text-[#a1a1aa] text-sm">
-              by <span className="text-[#fafafa] font-medium">{author}</span>
-            </span>
-          )}
-          <SourceBadge source={source} size="sm" />
-        </div>
-
-        <a
-          href={url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 text-sm text-[#71717a] hover:text-[#a1a1aa] transition-colors break-all"
-        >
-          <ExternalLink className="size-3.5 flex-shrink-0" />
-          <span className="truncate max-w-md">{url}</span>
-        </a>
-      </div>
-
-      {/* AI TLDR Section */}
-      <section className="mb-8">
-        <div className="flex items-center gap-2 mb-4">
-          <Sparkles className="size-5 text-[#fafafa]" />
-          <h2 className="text-lg font-semibold text-[#fafafa]">TL;DR</h2>
-        </div>
-        <div className="rounded-lg bg-[#18181b] border border-[#27272a] p-5">
-          <p className="text-[#a1a1aa] leading-relaxed">{blurb}</p>
-        </div>
-      </section>
-
-      {/* AI Summary Section */}
-      {summary && (
-        <section className="mb-8">
-          <div className="flex items-center gap-2 mb-4">
-            <Brain className="size-5 text-[#fafafa]" />
-            <h2 className="text-lg font-semibold text-[#fafafa]">AI Summary</h2>
-          </div>
-          <div className="rounded-lg bg-[#18181b] border border-[#27272a] p-5">
-            <p className="text-[#a1a1aa] leading-relaxed whitespace-pre-line">
-              {summary}
-            </p>
-          </div>
-        </section>
-      )}
-
-      {/* Media Gallery & OG Metadata Section */}
-      <BookmarkMetadataSection
-        rawMetadata={raw_metadata}
-        source={source}
-        authorUrl={author_url}
-        mediaUrls={media_urls}
-      />
-
-      {/* View Original Button */}
-      <section className="mb-8">
-        <a
-          href={url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-lg bg-[#fafafa] text-[#09090b] font-medium hover:bg-[#e4e4e7] transition-colors"
-        >
-          <ExternalLink className="size-4" />
-          View Original
-        </a>
-      </section>
-
-      {/* Metadata Footer */}
-      <footer className="pt-6 border-t border-[#27272a]">
-        <div className="flex flex-wrap items-center gap-4">
-          {/* Category */}
-          <CategoryBadge category={category} />
-
-          {/* Tags */}
-          {tags.length > 0 && (
-            <div className="flex items-center gap-2">
-              <Tag className="size-3.5 text-[#71717a]" />
-              <div className="flex flex-wrap gap-1.5">
-                {tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-[#27272a] text-[#a1a1aa]"
-                  >
-                    {TAG_LABELS[tag]}
-                  </span>
-                ))}
-              </div>
+      {/* Main Content Card */}
+      <div className="relative bg-background-muted border border-border rounded-none p-6 lg:p-8" data-corners="diagonal">
+        {/* Header */}
+        <div className="flex flex-col lg:flex-row lg:items-start gap-6 mb-8">
+          {/* Thumbnail */}
+          {thumbnailUrl && (
+            <div className="relative w-full lg:w-48 h-32 lg:h-28 flex-shrink-0 overflow-hidden rounded-none bg-background-emphasis border border-border">
+              <Image
+                src={thumbnailUrl}
+                alt=""
+                fill
+                className="object-cover"
+                sizes="(max-width: 1024px) 100vw, 192px"
+                unoptimized
+              />
             </div>
           )}
 
-          {/* Date Added */}
-          <div className="flex items-center gap-1.5 text-[#71717a] text-sm ml-auto">
-            <Calendar className="size-3.5" />
-            <span>Added {formattedDate}</span>
+          {/* Title & Meta */}
+          <div className="flex-1 min-w-0">
+            <h1 className="text-xl lg:text-2xl font-mono font-medium text-foreground leading-tight mb-3">
+              {title}
+            </h1>
+            <div className="flex flex-wrap items-center gap-3">
+              <SourceBadge source={source} size="sm" />
+              {author && (
+                <span className="text-sm font-mono text-foreground-muted">
+                  by <span className="text-foreground">{author}</span>
+                </span>
+              )}
+            </div>
           </div>
         </div>
-      </footer>
+
+        {/* TL;DR Section */}
+        {blurb && (
+          <section className="mb-8">
+            <h2 className="text-[10px] font-mono font-medium uppercase tracking-[0.15em] text-foreground-muted mb-3">
+              TL;DR
+            </h2>
+            <div className="bg-background border border-border rounded-none p-4">
+              <p className="text-sm font-mono text-foreground-muted leading-relaxed">
+                {blurb}
+              </p>
+            </div>
+          </section>
+        )}
+
+        {/* Summary Section */}
+        {summary && (
+          <section className="mb-8">
+            <h2 className="text-[10px] font-mono font-medium uppercase tracking-[0.15em] text-foreground-muted mb-3">
+              Summary
+            </h2>
+            <div className="bg-background border border-border rounded-none p-4">
+              <p className="text-sm font-mono text-foreground-muted leading-relaxed whitespace-pre-line">
+                {summary}
+              </p>
+            </div>
+          </section>
+        )}
+
+        {/* Regenerate AI Summary Button */}
+        {(!blurb || !summary) ? (
+          <section className="mb-8">
+            <div className="bg-background border border-dashed border-border rounded-none p-4 flex items-center justify-between">
+              <div>
+                <p className="text-sm font-mono text-foreground-muted">
+                  AI summary is missing or incomplete
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="font-mono"
+                onClick={handleRegenerate}
+                disabled={isRegenerating}
+              >
+                {isRegenerating ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="size-4" />
+                    Generate Summary
+                  </>
+                )}
+              </Button>
+            </div>
+          </section>
+        ) : (
+          <section className="mb-8">
+            <Button
+              variant="outline"
+              size="sm"
+              className="font-mono text-foreground-muted hover:text-foreground"
+              onClick={handleRegenerate}
+              disabled={isRegenerating}
+            >
+              {isRegenerating ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  Regenerating...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="size-4" />
+                  Regenerate AI Summary
+                </>
+              )}
+            </Button>
+          </section>
+        )}
+
+        {/* Metadata Section */}
+        <section className="mb-8">
+          <h2 className="text-[10px] font-mono font-medium uppercase tracking-[0.15em] text-foreground-muted mb-3">
+            Details
+          </h2>
+          <div className="bg-background border border-border rounded-none divide-y divide-border">
+            {/* Category */}
+            <div className="flex items-center justify-between p-4">
+              <span className="text-sm font-mono text-foreground-muted">Category</span>
+              <CategoryBadge category={category} />
+            </div>
+
+            {/* Tags */}
+            {tags.length > 0 && (
+              <div className="flex items-center justify-between p-4">
+                <span className="text-sm font-mono text-foreground-muted">Tags</span>
+                <div className="flex flex-wrap gap-1.5 justify-end">
+                  {tags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="inline-flex items-center px-2 py-0.5 rounded-none text-[10px] font-mono font-medium uppercase tracking-wider bg-background-emphasis text-foreground-muted border border-border"
+                    >
+                      {TAG_LABELS[tag]}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Source URL */}
+            <div className="flex items-center justify-between p-4">
+              <span className="text-sm font-mono text-foreground-muted">Source</span>
+              <span className="text-sm font-mono text-foreground">{formatDisplayUrl(url)}</span>
+            </div>
+
+            {/* Date Added */}
+            <div className="flex items-center justify-between p-4">
+              <span className="text-sm font-mono text-foreground-muted">Added</span>
+              <span className="text-sm font-mono text-foreground">{formattedDate}</span>
+            </div>
+          </div>
+        </section>
+
+        {/* Actions */}
+        <div className="flex flex-col sm:flex-row gap-3">
+          <Button variant="default" className="flex-1 font-mono" asChild>
+            <a href={url} target="_blank" rel="noopener noreferrer">
+              <ExternalLink className="size-4" />
+              View Original
+            </a>
+          </Button>
+          <Button
+            variant="outline"
+            className="flex-1 font-mono group"
+            onClick={handleCopyUrl}
+          >
+            {copied ? (
+              <>
+                <Check className="size-4 text-green-400" />
+                Copied!
+              </>
+            ) : (
+              <>
+                <Copy className="size-4 transition-colors text-foreground-muted group-hover:text-accent" />
+                Copy URL
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
     </div>
   )
 }

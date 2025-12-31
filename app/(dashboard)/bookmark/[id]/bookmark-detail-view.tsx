@@ -1,26 +1,41 @@
 'use client'
 
-import { useEffect } from 'react'
 import Link from 'next/link'
-import { toast } from 'sonner'
-import {
-  ArrowLeft,
-  ExternalLink,
-  Sparkles,
-  Brain,
-  Calendar,
-  Tag,
-} from 'lucide-react'
+import Image from 'next/image'
+import { ArrowLeft, ExternalLink, Copy, Check } from 'lucide-react'
+import { useState } from 'react'
+import { Button } from '@/components/ui/button'
 import { SourceBadge } from '@/components/ui/source-badge'
 import { CategoryBadge } from '@/components/ui/category-badge'
 import { TAG_LABELS } from '@/lib/constants'
-import type { Bookmark } from '@/types'
+import type { Bookmark, RawMetadata } from '@/types'
 
 interface BookmarkDetailViewProps {
   bookmark: Bookmark
 }
 
+function getThumbnailUrl(bookmark: Bookmark): string | null {
+  if (bookmark.media_urls && bookmark.media_urls.length > 0) {
+    return bookmark.media_urls[0]
+  }
+  const rawMetadata = bookmark.raw_metadata as RawMetadata | null
+  if (rawMetadata?.og?.image) {
+    return rawMetadata.og.image
+  }
+  return null
+}
+
+function formatDisplayUrl(url: string): string {
+  try {
+    const parsed = new URL(url)
+    return parsed.hostname.replace(/^www\./, '')
+  } catch {
+    return url
+  }
+}
+
 export function BookmarkDetailView({ bookmark }: BookmarkDetailViewProps) {
+  const [copied, setCopied] = useState(false)
   const {
     title,
     author,
@@ -33,126 +48,163 @@ export function BookmarkDetailView({ bookmark }: BookmarkDetailViewProps) {
     created_at,
   } = bookmark
 
-  // Show toast on page load
-  useEffect(() => {
-    toast.success('Bookmark loaded', {
-      description: title,
-    })
-  }, [title])
+  const thumbnailUrl = getThumbnailUrl(bookmark)
 
-  // Format date
   const formattedDate = new Date(created_at).toLocaleDateString('en-US', {
     year: 'numeric',
-    month: 'long',
+    month: 'short',
     day: 'numeric',
   })
 
+  const handleCopyUrl = async () => {
+    await navigator.clipboard.writeText(url)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
   return (
-    <div className="max-w-3xl mx-auto py-8 px-4 lg:px-6">
+    <div className="max-w-4xl mx-auto py-6 px-4 lg:px-6">
       {/* Back Button */}
       <Link
         href="/"
-        className="inline-flex items-center gap-2 text-[#a1a1aa] hover:text-[#fafafa] transition-colors mb-8 group"
+        className="inline-flex items-center gap-2 text-sm font-mono text-foreground-muted hover:text-foreground transition-colors mb-6"
       >
-        <ArrowLeft className="size-4 group-hover:-translate-x-1 transition-transform" />
-        <span className="text-sm font-medium">Back to Bookmarks</span>
+        <ArrowLeft className="size-4" />
+        <span>Back</span>
       </Link>
 
-      {/* Title Section */}
-      <div className="space-y-4 mb-8">
-        <h1 className="text-3xl font-bold text-[#fafafa] leading-tight tracking-tight">
-          {title}
-        </h1>
-
-        <div className="flex flex-wrap items-center gap-3">
-          {author && (
-            <span className="text-[#a1a1aa] text-sm">
-              by <span className="text-[#fafafa] font-medium">{author}</span>
-            </span>
-          )}
-          <SourceBadge source={source} size="sm" />
-        </div>
-
-        <a
-          href={url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 text-sm text-[#71717a] hover:text-[#a1a1aa] transition-colors break-all"
-        >
-          <ExternalLink className="size-3.5 flex-shrink-0" />
-          <span className="truncate max-w-md">{url}</span>
-        </a>
-      </div>
-
-      {/* AI TLDR Section */}
-      <section className="mb-8">
-        <div className="flex items-center gap-2 mb-4">
-          <Sparkles className="size-5 text-[#fafafa]" />
-          <h2 className="text-lg font-semibold text-[#fafafa]">TL;DR</h2>
-        </div>
-        <div className="rounded-lg bg-[#18181b] border border-[#27272a] p-5">
-          <p className="text-[#a1a1aa] leading-relaxed">{blurb}</p>
-        </div>
-      </section>
-
-      {/* AI Summary Section */}
-      {summary && (
-        <section className="mb-8">
-          <div className="flex items-center gap-2 mb-4">
-            <Brain className="size-5 text-[#fafafa]" />
-            <h2 className="text-lg font-semibold text-[#fafafa]">AI Summary</h2>
-          </div>
-          <div className="rounded-lg bg-[#18181b] border border-[#27272a] p-5">
-            <p className="text-[#a1a1aa] leading-relaxed whitespace-pre-line">
-              {summary}
-            </p>
-          </div>
-        </section>
-      )}
-
-      {/* View Original Button */}
-      <section className="mb-8">
-        <a
-          href={url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-lg bg-[#fafafa] text-[#09090b] font-medium hover:bg-[#e4e4e7] transition-colors"
-        >
-          <ExternalLink className="size-4" />
-          View Original
-        </a>
-      </section>
-
-      {/* Metadata Footer */}
-      <footer className="pt-6 border-t border-[#27272a]">
-        <div className="flex flex-wrap items-center gap-4">
-          {/* Category */}
-          <CategoryBadge category={category} />
-
-          {/* Tags */}
-          {tags.length > 0 && (
-            <div className="flex items-center gap-2">
-              <Tag className="size-3.5 text-[#71717a]" />
-              <div className="flex flex-wrap gap-1.5">
-                {tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-[#27272a] text-[#a1a1aa]"
-                  >
-                    {TAG_LABELS[tag]}
-                  </span>
-                ))}
-              </div>
+      {/* Main Content Card */}
+      <div className="relative bg-background-muted border border-border rounded-none p-6 lg:p-8" data-corners="diagonal">
+        {/* Header */}
+        <div className="flex flex-col lg:flex-row lg:items-start gap-6 mb-8">
+          {/* Thumbnail */}
+          {thumbnailUrl && (
+            <div className="relative w-full lg:w-48 h-32 lg:h-28 flex-shrink-0 overflow-hidden rounded-none bg-background-emphasis border border-border">
+              <Image
+                src={thumbnailUrl}
+                alt=""
+                fill
+                className="object-cover"
+                sizes="(max-width: 1024px) 100vw, 192px"
+                unoptimized
+              />
             </div>
           )}
 
-          {/* Date Added */}
-          <div className="flex items-center gap-1.5 text-[#71717a] text-sm ml-auto">
-            <Calendar className="size-3.5" />
-            <span>Added {formattedDate}</span>
+          {/* Title & Meta */}
+          <div className="flex-1 min-w-0">
+            <h1 className="text-xl lg:text-2xl font-mono font-medium text-foreground leading-tight mb-3">
+              {title}
+            </h1>
+            <div className="flex flex-wrap items-center gap-3">
+              <SourceBadge source={source} size="sm" />
+              {author && (
+                <span className="text-sm font-mono text-foreground-muted">
+                  by <span className="text-foreground">{author}</span>
+                </span>
+              )}
+            </div>
           </div>
         </div>
-      </footer>
+
+        {/* TL;DR Section */}
+        {blurb && (
+          <section className="mb-8">
+            <h2 className="text-[10px] font-mono font-medium uppercase tracking-[0.15em] text-foreground-muted mb-3">
+              TL;DR
+            </h2>
+            <div className="bg-background border border-border rounded-none p-4">
+              <p className="text-sm font-mono text-foreground-muted leading-relaxed">
+                {blurb}
+              </p>
+            </div>
+          </section>
+        )}
+
+        {/* Summary Section */}
+        {summary && (
+          <section className="mb-8">
+            <h2 className="text-[10px] font-mono font-medium uppercase tracking-[0.15em] text-foreground-muted mb-3">
+              Summary
+            </h2>
+            <div className="bg-background border border-border rounded-none p-4">
+              <p className="text-sm font-mono text-foreground-muted leading-relaxed whitespace-pre-line">
+                {summary}
+              </p>
+            </div>
+          </section>
+        )}
+
+        {/* Metadata Section */}
+        <section className="mb-8">
+          <h2 className="text-[10px] font-mono font-medium uppercase tracking-[0.15em] text-foreground-muted mb-3">
+            Details
+          </h2>
+          <div className="bg-background border border-border rounded-none divide-y divide-border">
+            {/* Category */}
+            <div className="flex items-center justify-between p-4">
+              <span className="text-sm font-mono text-foreground-muted">Category</span>
+              <CategoryBadge category={category} />
+            </div>
+
+            {/* Tags */}
+            {tags.length > 0 && (
+              <div className="flex items-center justify-between p-4">
+                <span className="text-sm font-mono text-foreground-muted">Tags</span>
+                <div className="flex flex-wrap gap-1.5 justify-end">
+                  {tags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="inline-flex items-center px-2 py-0.5 rounded-none text-[10px] font-mono font-medium uppercase tracking-wider bg-background-emphasis text-foreground-muted border border-border"
+                    >
+                      {TAG_LABELS[tag]}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Source URL */}
+            <div className="flex items-center justify-between p-4">
+              <span className="text-sm font-mono text-foreground-muted">Source</span>
+              <span className="text-sm font-mono text-foreground">{formatDisplayUrl(url)}</span>
+            </div>
+
+            {/* Date Added */}
+            <div className="flex items-center justify-between p-4">
+              <span className="text-sm font-mono text-foreground-muted">Added</span>
+              <span className="text-sm font-mono text-foreground">{formattedDate}</span>
+            </div>
+          </div>
+        </section>
+
+        {/* Actions */}
+        <div className="flex flex-col sm:flex-row gap-3">
+          <Button variant="default" className="flex-1 font-mono" asChild>
+            <a href={url} target="_blank" rel="noopener noreferrer">
+              <ExternalLink className="size-4" />
+              View Original
+            </a>
+          </Button>
+          <Button
+            variant="outline"
+            className="flex-1 font-mono group"
+            onClick={handleCopyUrl}
+          >
+            {copied ? (
+              <>
+                <Check className="size-4 text-green-400" />
+                Copied!
+              </>
+            ) : (
+              <>
+                <Copy className="size-4 transition-colors text-foreground-muted group-hover:text-accent" />
+                Copy URL
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
     </div>
   )
 }

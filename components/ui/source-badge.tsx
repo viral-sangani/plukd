@@ -1,7 +1,8 @@
 'use client'
 
+import type { ComponentType } from 'react'
 import type { ContentSource } from '@/types'
-import { SOURCE_COLORS, SOURCE_LABELS } from '@/lib/constants'
+import { SOURCE_LABELS } from '@/lib/constants'
 import { cn } from '@/lib/utils'
 import { TwitterIcon, RedditIcon, LinkedInIcon, YouTubeIcon } from '@/components/icons'
 import { Globe } from 'lucide-react'
@@ -13,37 +14,61 @@ interface SourceBadgeProps {
 }
 
 const sizeClasses = {
-  sm: 'px-1.5 py-0.5 text-[10px] gap-1 [&>svg]:size-2.5',
-  md: 'px-2 py-1 text-xs gap-1.5 [&>svg]:size-3',
-  lg: 'px-2.5 py-1.5 text-sm gap-2 [&>svg]:size-4',
+  sm: 'px-1.5 py-0.5 text-[9px] gap-1 [&>svg]:size-2.5',
+  md: 'px-2 py-1 text-[10px] gap-1.5 [&>svg]:size-3',
+  lg: 'px-2.5 py-1.5 text-xs gap-2 [&>svg]:size-4',
 }
 
-function getSourceIcon(source: ContentSource) {
-  switch (source) {
-    case 'twitter':
-      return TwitterIcon
-    case 'reddit':
-      return RedditIcon
-    case 'linkedin':
-      return LinkedInIcon
-    case 'youtube':
-      return YouTubeIcon
-    case 'web':
-    default:
-      return Globe
-  }
+// Platform-specific colors with background variants for dark theme
+const sourceStyles: Record<ContentSource, { bg: string; text: string; border: string }> = {
+  twitter: {
+    bg: 'bg-[#1da1f2]/15',
+    text: 'text-[#1da1f2]',
+    border: 'border-[#1da1f2]/30',
+  },
+  reddit: {
+    bg: 'bg-[#ff4500]/15',
+    text: 'text-[#ff4500]',
+    border: 'border-[#ff4500]/30',
+  },
+  linkedin: {
+    bg: 'bg-[#0077b5]/15',
+    text: 'text-[#0077b5]',
+    border: 'border-[#0077b5]/30',
+  },
+  youtube: {
+    bg: 'bg-[#ff0000]/15',
+    text: 'text-[#ff0000]',
+    border: 'border-[#ff0000]/30',
+  },
+  web: {
+    bg: 'bg-foreground-muted/10',
+    text: 'text-foreground-muted',
+    border: 'border-foreground-muted/20',
+  },
+}
+
+// Map sources to their icon components
+const sourceIcons: Record<ContentSource, ComponentType<{ className?: string }>> = {
+  twitter: TwitterIcon,
+  reddit: RedditIcon,
+  linkedin: LinkedInIcon,
+  youtube: YouTubeIcon,
+  web: Globe,
 }
 
 export function SourceBadge({ source, size = 'md', className }: SourceBadgeProps) {
-  const Icon = getSourceIcon(source)
+  const Icon = sourceIcons[source]
   const label = SOURCE_LABELS[source]
-  const colorClass = SOURCE_COLORS[source]
+  const styles = sourceStyles[source]
 
   return (
     <span
       className={cn(
-        'inline-flex items-center justify-center rounded-sm font-medium text-white whitespace-nowrap',
-        colorClass,
+        'inline-flex items-center justify-center rounded-none font-mono font-medium uppercase tracking-wider whitespace-nowrap border transition-colors',
+        styles.bg,
+        styles.text,
+        styles.border,
         sizeClasses[size],
         className
       )}

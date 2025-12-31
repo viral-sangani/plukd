@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { Category, ContentSource, Tag } from '@/types/database'
+import { Category, ContentSource, ProcessingStatus, Tag } from '@/types/database'
+import { detectSource } from '@/lib/utils'
+import { processBookmark } from '@/lib/processing/pipeline'
 
 // GET /api/bookmarks - List bookmarks with filtering, pagination, and search
 export async function GET(request: NextRequest) {
@@ -93,6 +95,91 @@ export async function GET(request: NextRequest) {
     })
   } catch (error) {
     console.error('Error in bookmarks API:', error)
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    )
+  }
+}
+
+// POST /api/bookmarks - Create a new bookmark
+export async function POST(request: NextRequest) {
+  try {
+    const supabase = await createClient()
+
+    // Check authentication
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+
+    if (authError || !user) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
+    // Parse request body
+    const body = await request.json()
+    const { url } = body
+
+    if (!url || typeof url !== 'string') {
+      return NextResponse.json(
+        { error: 'URL is required' },
+        { status: 400 }
+      )
+    }
+
+    // Validate URL format
+    try {
+      new URL(url)
+    } catch {
+      return NextResponse.json(
+        { error: 'Invalid URL format' },
+        { status: 400 }
+      )
+    }
+
+    // Create bookmark with pending status
+    const bookmarkData = {
+      user_id: user.id,
+      url,
+      source: detectSource(url) as ContentSource,
+      title: url, // Placeholder, will be updated after processing
+      blurb: '',
+      summary: '',
+      category: 'news-updates' as Category,
+      tags: [] as Tag[],
+      processing_status: 'pending' as ProcessingStatus,
+    }
+
+    const { data: bookmark, error: insertError } = await supabase
+      .from('bookmarks')
+      .insert(bookmarkData as never)
+      .select('id, url')
+      .single<{ id: string; url: string }>()
+
+    if (insertError) {
+      console.error('Error inserting bookmark:', insertError)
+      return NextResponse.json(
+        { error: 'Failed to create bookmark' },
+        { status: 500 }
+      )
+    }
+
+    // Trigger processing in the background (don't await)
+    processBookmark(bookmark.id, bookmark.url).catch((err) => {
+      console.error(`Failed to process bookmark ${bookmark.id}:`, err)
+    })
+
+    return NextResponse.json({
+      success: true,
+      bookmark: {
+        id: bookmark.id,
+        url: bookmark.url,
+      },
+      message: 'Bookmark saved. Processing will complete shortly.',
+    })
+  } catch (error) {
+    console.error('Error creating bookmark:', error)
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

@@ -14,7 +14,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
     <Sonner
       theme="dark"
       position="bottom-right"
-      className="toaster group"
+      className="toaster group font-mono"
       icons={{
         success: <CircleCheckIcon className="size-4" />,
         info: <InfoIcon className="size-4" />,
@@ -24,15 +24,20 @@ const Toaster = ({ ...props }: ToasterProps) => {
       }}
       toastOptions={{
         style: {
-          background: "#18181b",
-          border: "1px solid #27272a",
+          background: "#111111",
+          border: "1px solid #1f1f1f",
           color: "#fafafa",
+          borderRadius: "0",
+          fontFamily: "var(--font-mono)",
         },
         classNames: {
-          success: "[&>svg]:text-emerald-500",
+          toast: "rounded-none",
+          title: "text-sm font-medium",
+          description: "text-xs text-[#a1a1aa]",
+          success: "[&>svg]:text-accent",
           error: "[&>svg]:text-red-500",
           warning: "[&>svg]:text-amber-500",
-          info: "[&>svg]:text-blue-500",
+          info: "[&>svg]:text-accent",
         },
       }}
       {...props}

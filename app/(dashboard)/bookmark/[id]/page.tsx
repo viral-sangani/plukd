@@ -1,4 +1,4 @@
-import { getBookmarkById } from '@/lib/mock-data'
+import { createAdminClient } from '@/lib/supabase/server'
 import { BookmarkDetailClient } from './bookmark-detail-client'
 
 interface BookmarkPageProps {
@@ -9,24 +9,33 @@ interface BookmarkPageProps {
 
 export default async function BookmarkPage({ params }: BookmarkPageProps) {
   const { id } = await params
-  // Get initial bookmark data for SSR (fallback to mock data during development)
-  const initialBookmark = getBookmarkById(id)
-
-  return <BookmarkDetailClient id={id} initialBookmark={initialBookmark} />
+  return <BookmarkDetailClient id={id} />
 }
 
 export async function generateMetadata({ params }: BookmarkPageProps) {
   const { id } = await params
-  const bookmark = getBookmarkById(id)
 
-  if (!bookmark) {
-    return {
-      title: 'Bookmark Not Found - Plukd',
+  try {
+    const supabase = await createAdminClient()
+    const { data: bookmark } = await supabase
+      .from('bookmarks')
+      .select('title, blurb')
+      .eq('id', id)
+      .single<{ title: string; blurb: string | null }>()
+
+    if (!bookmark) {
+      return {
+        title: 'Bookmark - Plukd',
+      }
     }
-  }
 
-  return {
-    title: `${bookmark.title} - Plukd`,
-    description: bookmark.blurb,
+    return {
+      title: `${bookmark.title} - Plukd`,
+      description: bookmark.blurb || undefined,
+    }
+  } catch {
+    return {
+      title: 'Bookmark - Plukd',
+    }
   }
 }

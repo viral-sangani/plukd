@@ -10,14 +10,16 @@ interface SearchInputProps {
   placeholder?: string
   debounceMs?: number
   className?: string
+  showShortcut?: boolean
 }
 
 export function SearchInput({
   value,
   onChange,
-  placeholder = 'Search bookmarks...',
+  placeholder = 'Search',
   debounceMs = 300,
   className,
+  showShortcut = true,
 }: SearchInputProps) {
   const [localValue, setLocalValue] = useState(value)
   const timeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -27,6 +29,18 @@ export function SearchInput({
   useEffect(() => {
     setLocalValue(value)
   }, [value])
+
+  // Keyboard shortcut handler (Cmd+K or Ctrl+K)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        inputRef.current?.focus()
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [])
 
   const debouncedOnChange = useCallback(
     (newValue: string) => {
@@ -62,8 +76,8 @@ export function SearchInput({
   }
 
   return (
-    <div className={cn('relative', className)}>
-      <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-foreground-muted pointer-events-none" />
+    <div className={cn('relative group', className)}>
+      <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-foreground-muted pointer-events-none group-focus-within:text-accent transition-colors" />
       <input
         ref={inputRef}
         type="text"
@@ -71,26 +85,34 @@ export function SearchInput({
         onChange={handleChange}
         placeholder={placeholder}
         className={cn(
-          'w-full h-10 pl-10 pr-10 rounded-md border border-border bg-background text-foreground text-sm',
-          'placeholder:text-foreground-muted',
-          'focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20',
-          'transition-colors'
+          'w-full h-10 pl-10 pr-20 rounded-none border text-sm font-mono',
+          'bg-background-subtle border-border text-foreground',
+          'placeholder:text-foreground-muted placeholder:font-mono',
+          'focus:outline-none focus:border-accent focus:ring-[2px] focus:ring-accent/20',
+          'transition-[color,box-shadow,border-color]'
         )}
       />
-      {localValue && (
-        <button
-          type="button"
-          onClick={handleClear}
-          className={cn(
-            'absolute right-3 top-1/2 -translate-y-1/2 p-0.5 rounded-sm',
-            'text-foreground-muted hover:text-foreground hover:bg-background-emphasis',
-            'transition-colors'
-          )}
-        >
-          <X className="size-4" />
-          <span className="sr-only">Clear search</span>
-        </button>
-      )}
+      <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
+        {localValue && (
+          <button
+            type="button"
+            onClick={handleClear}
+            className={cn(
+              'p-0.5 rounded-sm',
+              'text-foreground-muted hover:text-accent hover:bg-accent/10',
+              'transition-colors'
+            )}
+          >
+            <X className="size-4" />
+            <span className="sr-only">Clear search</span>
+          </button>
+        )}
+        {showShortcut && !localValue && (
+          <kbd className="kbd">
+            <span className="text-[10px]">⌘</span>K
+          </kbd>
+        )}
+      </div>
     </div>
   )
 }

@@ -52,7 +52,8 @@ import {
   ChevronsRight,
   Loader2,
   ImageIcon,
-  X,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react'
 import {
   Dialog,
@@ -133,6 +134,9 @@ function truncateWords(text: string, maxWords: number): string {
 interface BookmarkTableProps {
   bookmarks: Bookmark[]
   onSelectBookmark?: (bookmark: Bookmark) => void
+  onSelectionChange?: (selectedIds: Set<string>) => void
+  isDeleteDialogOpen?: boolean
+  onDeleteDialogOpenChange?: (open: boolean) => void
   className?: string
 }
 
@@ -141,22 +145,39 @@ const ROWS_PER_PAGE_OPTIONS = [10, 20, 50, 100]
 export function BookmarkTable({
   bookmarks,
   onSelectBookmark,
+  onSelectionChange,
+  isDeleteDialogOpen: controlledDeleteDialogOpen,
+  onDeleteDialogOpenChange,
   className,
 }: BookmarkTableProps) {
   const router = useRouter()
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set())
   const [currentPage, setCurrentPage] = React.useState(1)
   const [rowsPerPage, setRowsPerPage] = React.useState(10)
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = React.useState(false)
+  const [internalDeleteDialogOpen, setInternalDeleteDialogOpen] = React.useState(false)
+
+  // Use controlled or internal state for delete dialog
+  const isDeleteDialogOpen = controlledDeleteDialogOpen ?? internalDeleteDialogOpen
+  const setIsDeleteDialogOpen = onDeleteDialogOpenChange ?? setInternalDeleteDialogOpen
   const [isDeleting, setIsDeleting] = React.useState(false)
   const [deleteProgress, setDeleteProgress] = React.useState({ current: 0, total: 0 })
+  const [sortOrder, setSortOrder] = React.useState<'asc' | 'desc'>('desc')
+
+  // Sort bookmarks by date
+  const sortedBookmarks = React.useMemo(() => {
+    return [...bookmarks].sort((a, b) => {
+      const dateA = new Date(a.created_at).getTime()
+      const dateB = new Date(b.created_at).getTime()
+      return sortOrder === 'desc' ? dateB - dateA : dateA - dateB
+    })
+  }, [bookmarks, sortOrder])
 
   // Pagination calculations
-  const totalRows = bookmarks.length
+  const totalRows = sortedBookmarks.length
   const totalPages = Math.ceil(totalRows / rowsPerPage)
   const startIndex = (currentPage - 1) * rowsPerPage
   const endIndex = Math.min(startIndex + rowsPerPage, totalRows)
-  const paginatedBookmarks = bookmarks.slice(startIndex, endIndex)
+  const paginatedBookmarks = sortedBookmarks.slice(startIndex, endIndex)
 
   // Reset to first page when bookmarks change significantly
   React.useEffect(() => {
@@ -164,6 +185,11 @@ export function BookmarkTable({
       setCurrentPage(1)
     }
   }, [bookmarks.length, rowsPerPage, currentPage])
+
+  // Notify parent of selection changes
+  React.useEffect(() => {
+    onSelectionChange?.(selectedIds)
+  }, [selectedIds, onSelectionChange])
 
   const handleSelectAll = React.useCallback(
     (checked: boolean) => {
@@ -249,10 +275,6 @@ export function BookmarkTable({
     [router]
   )
 
-  const handleClearSelection = React.useCallback(() => {
-    setSelectedIds(new Set())
-  }, [])
-
   const handleBulkDelete = React.useCallback(async () => {
     const idsToDelete = Array.from(selectedIds)
     if (idsToDelete.length === 0) return
@@ -325,35 +347,6 @@ export function BookmarkTable({
 
   return (
     <div className={cn('space-y-4', className)}>
-      {/* Bulk Action Bar */}
-      {selectedCount > 0 && (
-        <div className="flex items-center justify-between rounded-lg border border-border-subtle bg-[#09090b] px-4 py-3">
-          <div className="flex items-center gap-4">
-            <span className="text-sm font-medium text-foreground">
-              {selectedCount} selected
-            </span>
-            <div className="h-4 w-px bg-border-subtle" />
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={() => setIsDeleteDialogOpen(true)}
-              className="gap-1.5"
-            >
-              <Trash2 className="size-4" />
-              Delete
-            </Button>
-          </div>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={handleClearSelection}
-            aria-label="Clear selection"
-          >
-            <X className="size-4" />
-          </Button>
-        </div>
-      )}
-
       {/* Bulk Delete Confirmation Dialog */}
       <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <DialogContent showCloseButton={!isDeleting}>
@@ -413,10 +406,10 @@ export function BookmarkTable({
       </Dialog>
 
       {/* Table */}
-      <div className="rounded-lg border border-border-subtle overflow-hidden bg-[#09090b]">
+      <div className="rounded-none overflow-hidden border border-border">
         <Table>
           <TableHeader>
-            <TableRow className="bg-[#18181b] hover:bg-[#18181b] border-b border-border-subtle">
+            <TableRow className="bg-transparent hover:bg-transparent border-b border-border">
               {/* Checkbox */}
               <TableHead className="w-[40px] px-4">
                 <Checkbox
@@ -442,20 +435,35 @@ export function BookmarkTable({
                 <span className="sr-only">Thumbnail</span>
               </TableHead>
               {/* Title & Description */}
-              <TableHead className="text-foreground-secondary font-medium text-xs uppercase tracking-wider">
+              <TableHead className="text-foreground-muted font-mono font-normal text-[10px] uppercase tracking-[0.15em]">
                 Title
               </TableHead>
               {/* Source */}
-              <TableHead className="w-[100px] text-foreground-secondary font-medium text-xs uppercase tracking-wider">
+              <TableHead className="w-[100px] text-foreground-muted font-mono font-normal text-[10px] uppercase tracking-[0.15em]">
                 Source
               </TableHead>
               {/* Category */}
-              <TableHead className="w-[140px] text-foreground-secondary font-medium text-xs uppercase tracking-wider">
+              <TableHead className="w-[140px] text-foreground-muted font-mono font-normal text-[10px] uppercase tracking-[0.15em]">
                 Category
               </TableHead>
               {/* Date */}
-              <TableHead className="w-[90px] text-foreground-secondary font-medium text-xs uppercase tracking-wider">
-                Date
+              <TableHead className="w-[110px] text-foreground-muted font-mono font-normal text-[10px] uppercase tracking-[0.15em]">
+                <button
+                  type="button"
+                  onClick={() => setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
+                  className="flex items-center gap-1 hover:text-foreground transition-colors"
+                >
+                  Date
+                  {sortOrder === 'desc' ? (
+                    <ArrowDown className="size-3" />
+                  ) : (
+                    <ArrowUp className="size-3" />
+                  )}
+                </button>
+              </TableHead>
+              {/* Open URL */}
+              <TableHead className="w-[48px] px-2">
+                <span className="sr-only">Open URL</span>
               </TableHead>
               {/* Actions */}
               <TableHead className="w-[48px] px-2">
@@ -471,16 +479,16 @@ export function BookmarkTable({
                   key={bookmark.id}
                   data-state={isSelected ? 'selected' : undefined}
                   className={cn(
-                    'group cursor-pointer transition-colors',
-                    'hover:bg-background-emphasis',
-                    'border-b border-border-subtle last:border-0',
-                    isSelected && 'bg-background-emphasis'
+                    'group cursor-pointer transition-all',
+                    'border-l-2 border-l-[#080808] hover:border-l-accent hover:bg-[#121212]',
+                    'border-b border-border last:border-0',
+                    isSelected && 'bg-accent/5 border-l-accent'
                   )}
                   onClick={() => handleRowClick(bookmark)}
                 >
                   {/* Checkbox */}
                   <TableCell
-                    className="px-4 py-4"
+                    className="px-4 py-3"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <Checkbox
@@ -494,7 +502,7 @@ export function BookmarkTable({
 
                   {/* Drag handle */}
                   <TableCell
-                    className="px-0 py-4"
+                    className="px-0 py-3"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <button
@@ -507,27 +515,27 @@ export function BookmarkTable({
                   </TableCell>
 
                   {/* Thumbnail */}
-                  <TableCell className="px-2 py-4">
-                    <div className="relative size-14 flex-shrink-0 overflow-hidden rounded-md bg-background-emphasis">
+                  <TableCell className="px-2 py-3">
+                    <div className="relative size-12 flex-shrink-0 overflow-hidden rounded-none bg-background-emphasis">
                       {getThumbnailUrl(bookmark) ? (
                         <Image
                           src={getThumbnailUrl(bookmark)!}
                           alt=""
                           fill
                           className="object-cover"
-                          sizes="56px"
+                          sizes="48px"
                           unoptimized
                         />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center text-foreground-muted">
-                          <ImageIcon className="size-5" />
+                          <ImageIcon className="size-4" />
                         </div>
                       )}
                     </div>
                   </TableCell>
 
-                  {/* Title & Description with hover preview */}
-                  <TableCell className="py-4 min-w-0">
+                  {/* Title & URL with hover preview */}
+                  <TableCell className="py-3 min-w-0">
                     <HoverCard openDelay={300} closeDelay={100}>
                       <HoverCardTrigger asChild>
                         <Link
@@ -535,15 +543,13 @@ export function BookmarkTable({
                           className="block min-w-0"
                           onClick={(e) => e.stopPropagation()}
                         >
-                          <div className="space-y-1 min-w-0">
-                            <div className="font-semibold text-foreground group-hover:text-accent transition-colors line-clamp-1 text-[15px]">
+                          <div className="space-y-0.5 min-w-0">
+                            <div className="font-mono font-medium text-foreground line-clamp-1 text-sm">
                               {getDisplayTitle(bookmark.title, bookmark.url)}
                             </div>
-                            {bookmark.blurb && (
-                              <div className="text-sm text-foreground-muted line-clamp-1">
-                                {truncateWords(bookmark.blurb, 8)}
-                              </div>
-                            )}
+                            <div className="text-[11px] text-foreground-muted line-clamp-1 font-mono">
+                              {formatDisplayUrl(bookmark.url)}
+                            </div>
                           </div>
                         </Link>
                       </HoverCardTrigger>
@@ -559,23 +565,40 @@ export function BookmarkTable({
                   </TableCell>
 
                   {/* Source */}
-                  <TableCell className="py-4">
+                  <TableCell className="py-3">
                     <SourceBadge source={bookmark.source} size="sm" />
                   </TableCell>
 
                   {/* Category */}
-                  <TableCell className="py-4">
+                  <TableCell className="py-3">
                     <CategoryBadge category={bookmark.category} />
                   </TableCell>
 
                   {/* Date */}
-                  <TableCell className="py-4 text-sm text-foreground-muted">
+                  <TableCell className="py-3 text-xs text-foreground-muted font-mono tabular-nums">
                     {formatTimeAgo(bookmark.created_at)}
+                  </TableCell>
+
+                  {/* Open URL */}
+                  <TableCell
+                    className="px-2 py-3"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={(e) => handleOpenOriginal(bookmark.url, e)}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity text-foreground-muted hover:text-accent"
+                      title="Open in new tab"
+                    >
+                      <ExternalLink className="size-4" />
+                      <span className="sr-only">Open URL in new tab</span>
+                    </Button>
                   </TableCell>
 
                   {/* Actions */}
                   <TableCell
-                    className="px-2 py-4"
+                    className="px-2 py-3"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <DropdownMenu>
@@ -636,9 +659,9 @@ export function BookmarkTable({
       </div>
 
       {/* Pagination */}
-      <div className="flex items-center justify-between px-2">
+      <div className="flex items-center justify-between px-2 py-3">
         {/* Selection info */}
-        <div className="text-sm text-foreground-muted">
+        <div className="text-xs text-foreground-muted font-mono">
           {selectedIds.size} of {totalRows} row(s) selected
         </div>
 
@@ -646,7 +669,7 @@ export function BookmarkTable({
         <div className="flex items-center gap-6">
           {/* Rows per page */}
           <div className="flex items-center gap-2">
-            <span className="text-sm text-foreground-muted">Rows per page</span>
+            <span className="text-[10px] text-foreground-muted font-mono uppercase tracking-[0.15em]">Rows per page</span>
             <Select
               value={String(rowsPerPage)}
               onValueChange={(value) => {
@@ -654,7 +677,7 @@ export function BookmarkTable({
                 setCurrentPage(1)
               }}
             >
-              <SelectTrigger className="w-[70px]">
+              <SelectTrigger className="w-[70px] h-8 text-sm">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -668,47 +691,51 @@ export function BookmarkTable({
           </div>
 
           {/* Page info */}
-          <div className="text-sm text-foreground-muted">
+          <div className="text-xs text-foreground-muted font-mono tabular-nums">
             Page {currentPage} of {totalPages || 1}
           </div>
 
           {/* Navigation buttons */}
           <div className="flex items-center gap-1">
             <Button
-              variant="outline"
+              variant="ghost"
               size="icon-sm"
+              className="group"
               onClick={() => setCurrentPage(1)}
               disabled={currentPage === 1}
               aria-label="First page"
             >
-              <ChevronsLeft className="size-4" />
+              <ChevronsLeft className="size-4 transition-colors text-foreground-muted group-hover:text-foreground" />
             </Button>
             <Button
-              variant="outline"
+              variant="ghost"
               size="icon-sm"
+              className="group"
               onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
               disabled={currentPage === 1}
               aria-label="Previous page"
             >
-              <ChevronLeft className="size-4" />
+              <ChevronLeft className="size-4 transition-colors text-foreground-muted group-hover:text-foreground" />
             </Button>
             <Button
-              variant="outline"
+              variant="ghost"
               size="icon-sm"
+              className="group"
               onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
               disabled={currentPage === totalPages || totalPages === 0}
               aria-label="Next page"
             >
-              <ChevronRight className="size-4" />
+              <ChevronRight className="size-4 transition-colors text-foreground-muted group-hover:text-foreground" />
             </Button>
             <Button
-              variant="outline"
+              variant="ghost"
               size="icon-sm"
+              className="group"
               onClick={() => setCurrentPage(totalPages)}
               disabled={currentPage === totalPages || totalPages === 0}
               aria-label="Last page"
             >
-              <ChevronsRight className="size-4" />
+              <ChevronsRight className="size-4 transition-colors text-foreground-muted group-hover:text-foreground" />
             </Button>
           </div>
         </div>

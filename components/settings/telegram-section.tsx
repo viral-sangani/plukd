@@ -46,8 +46,8 @@ export function TelegramSection({
 
   return (
     <div>
-      {/* Section Header */}
-      <h2 className="text-lg font-semibold text-[#fafafa] mb-4">
+      {/* Section Header - Orbmarkets style */}
+      <h2 className="text-[11px] font-mono font-medium uppercase tracking-[0.15em] text-foreground-muted mb-4">
         Telegram Integration
       </h2>
 
