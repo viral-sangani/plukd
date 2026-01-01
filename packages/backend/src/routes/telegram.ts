@@ -10,6 +10,18 @@ import type { Database } from '@plukd/shared'
 const bot = createBot()
 setupBotHandlers(bot)
 
+// Initialize bot (fetches bot info from Telegram)
+let botInitialized = false
+const initBot = async () => {
+  if (!botInitialized) {
+    await bot.init()
+    botInitialized = true
+    console.log('[telegram] Bot initialized:', bot.botInfo.username)
+  }
+}
+// Start initialization immediately
+initBot().catch(err => console.error('[telegram] Bot init error:', err))
+
 type UsersInsert = Database['public']['Tables']['users']['Insert']
 type UsersUpdate = Database['public']['Tables']['users']['Update']
 
@@ -43,6 +55,9 @@ telegramRoutes.post('/webhook', async (c) => {
     // Get the update from Telegram
     const update = await c.req.json()
     console.log('[telegram] Received update:', JSON.stringify(update).slice(0, 200))
+
+    // Ensure bot is initialized before handling updates
+    await initBot()
 
     // Process the update through Grammy bot handlers
     await bot.handleUpdate(update)
