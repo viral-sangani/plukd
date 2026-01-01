@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
@@ -220,7 +220,22 @@ export function BookmarkDetailClient({ id, initialBookmark }: BookmarkDetailClie
     category,
     tags,
     created_at,
+    processing_status,
   } = displayBookmark
+
+  // Check if AI processing is in progress
+  const isProcessing = processing_status === 'pending' || processing_status === 'processing'
+
+  // Auto-poll when processing is in progress
+  useEffect(() => {
+    if (!isProcessing) return
+
+    const interval = setInterval(() => {
+      refetch()
+    }, 3000) // Poll every 3 seconds
+
+    return () => clearInterval(interval)
+  }, [isProcessing, refetch])
 
   const thumbnailUrl = getThumbnailUrl(displayBookmark)
 
@@ -319,8 +334,22 @@ export function BookmarkDetailClient({ id, initialBookmark }: BookmarkDetailClie
           </section>
         )}
 
-        {/* Regenerate AI Summary Button */}
-        {(!blurb || !summary) ? (
+        {/* AI Processing Status / Regenerate Button */}
+        {isProcessing || isRegenerating ? (
+          <section className="mb-8">
+            <div className="bg-accent/5 border border-accent/20 rounded-none p-4 flex items-center gap-3">
+              <Loader2 className="size-5 animate-spin text-accent" />
+              <div>
+                <p className="text-sm font-mono font-medium text-accent">
+                  Generating AI summary...
+                </p>
+                <p className="text-xs font-mono text-foreground-muted mt-0.5">
+                  This usually takes 10-30 seconds
+                </p>
+              </div>
+            </div>
+          </section>
+        ) : (!blurb || !summary) ? (
           <section className="mb-8">
             <div className="bg-background border border-dashed border-border rounded-none p-4 flex items-center justify-between">
               <div>
@@ -335,17 +364,8 @@ export function BookmarkDetailClient({ id, initialBookmark }: BookmarkDetailClie
                 onClick={handleRegenerate}
                 disabled={isRegenerating}
               >
-                {isRegenerating ? (
-                  <>
-                    <Loader2 className="size-4 animate-spin" />
-                    Processing...
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="size-4" />
-                    Generate Summary
-                  </>
-                )}
+                <Sparkles className="size-4" />
+                Generate Summary
               </Button>
             </div>
           </section>
@@ -358,17 +378,8 @@ export function BookmarkDetailClient({ id, initialBookmark }: BookmarkDetailClie
               onClick={handleRegenerate}
               disabled={isRegenerating}
             >
-              {isRegenerating ? (
-                <>
-                  <Loader2 className="size-4 animate-spin" />
-                  Regenerating...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="size-4" />
-                  Regenerate AI Summary
-                </>
-              )}
+              <Sparkles className="size-4" />
+              Regenerate AI Summary
             </Button>
           </section>
         )}

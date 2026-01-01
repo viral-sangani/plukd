@@ -523,8 +523,14 @@ export function BookmarkTable({
                           onClick={(e) => e.stopPropagation()}
                         >
                           <div className="space-y-0.5 min-w-0">
-                            <div className="font-mono font-medium text-foreground line-clamp-1 text-sm">
+                            <div className="font-mono font-medium text-foreground line-clamp-1 text-sm flex items-center gap-2">
                               {getDisplayTitle(bookmark.title, bookmark.url)}
+                              {(bookmark.processing_status === 'pending' || bookmark.processing_status === 'processing') && (
+                                <span className="inline-flex items-center gap-1 text-[10px] text-accent shrink-0">
+                                  <Loader2 className="size-3 animate-spin" />
+                                  <span className="hidden sm:inline">Processing...</span>
+                                </span>
+                              )}
                             </div>
                             <div className="text-[11px] text-foreground-muted line-clamp-1 font-mono">
                               {formatDisplayUrl(bookmark.url)}
