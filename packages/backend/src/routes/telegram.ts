@@ -3,7 +3,12 @@ import { z } from 'zod'
 import { authMiddleware } from '../middleware/auth'
 import { supabaseAdmin } from '../config/supabase'
 import { env } from '../config/env'
+import { createBot, setupBotHandlers } from '../lib/telegram/bot'
 import type { Database } from '@plukd/shared'
+
+// Initialize bot instance for webhook handling
+const bot = createBot()
+setupBotHandlers(bot)
 
 type UsersInsert = Database['public']['Tables']['users']['Insert']
 type UsersUpdate = Database['public']['Tables']['users']['Update']
@@ -35,11 +40,12 @@ telegramRoutes.post('/webhook', async (c) => {
       return c.json({ error: 'Unauthorized' }, 401)
     }
 
-    // TODO: Integrate Grammy bot handlers
-    // Agent 5 will set up the bot with proper webhook handling
-    // For now, acknowledge the update
+    // Get the update from Telegram
     const update = await c.req.json()
     console.log('[telegram] Received update:', JSON.stringify(update).slice(0, 200))
+
+    // Process the update through Grammy bot handlers
+    await bot.handleUpdate(update)
 
     return c.json({ status: 'ok' })
   } catch (error) {
@@ -238,12 +244,12 @@ telegramRoutes.post('/link', async (c) => {
     const now = new Date().toISOString()
     const { data: linkCode, error: codeError } = await supabaseAdmin
       .from('telegram_link_codes')
-      .select('id, telegram_chat_id')
+      .select('id, telegram_chat_id, telegram_username')
       .eq('code', normalizedCode)
       .is('used_at', null)
       .gt('expires_at', now)
       .not('telegram_chat_id', 'is', null)
-      .single<{ id: string; telegram_chat_id: string | null }>()
+      .single<{ id: string; telegram_chat_id: string | null; telegram_username: string | null }>()
 
     if (codeError || !linkCode) {
       // Provide more specific error message
@@ -279,6 +285,7 @@ telegramRoutes.post('/link', async (c) => {
         email: user.email || '',
         name: user.email?.split('@')[0] || 'User',
         telegram_chat_id: linkCode.telegram_chat_id,
+        telegram_username: linkCode.telegram_username,
         telegram_linked_at: new Date().toISOString(),
       }
 
@@ -294,6 +301,7 @@ telegramRoutes.post('/link', async (c) => {
       // User exists, update with telegram info
       const updateData: UsersUpdate = {
         telegram_chat_id: linkCode.telegram_chat_id,
+        telegram_username: linkCode.telegram_username,
         telegram_linked_at: new Date().toISOString(),
       }
 

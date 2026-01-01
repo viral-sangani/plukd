@@ -85,11 +85,10 @@ async function handleStartCommand(ctx: Context): Promise<void> {
     const code = generateCode(6)
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString() // 10 minutes from now
 
-    // Note: telegram_username column requires migration 004 to be applied
-    // For now, just store the basic info and set username on user during link
     const linkCodeData: TelegramLinkCodeInsert = {
       code,
       telegram_chat_id: chatId,
+      telegram_username: username ?? null,
       expires_at: expiresAt,
     }
 

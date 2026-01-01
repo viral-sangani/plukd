@@ -1,6 +1,7 @@
 import Image from "next/image";
 import { AuthCard } from "@/components/auth/auth-card";
 import { EmailLoginForm } from "@/components/auth/email-login-form";
+import { GoogleLoginButton } from "@/components/auth/google-login-button";
 
 interface LoginPageProps {
   searchParams: Promise<{ error?: string }>;
@@ -37,7 +38,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
               Welcome back
             </h2>
             <p className="mt-1 text-sm text-[#a8a29e]">
-              Enter your email to receive a magic link
+              Sign in to your account to continue
             </p>
           </div>
 
@@ -48,6 +49,19 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
                 : "An error occurred. Please try again."}
             </div>
           )}
+
+          <GoogleLoginButton />
+
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t border-[#44403c]" />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-[#1a1a1a] px-2 text-[#78716c]">
+                or continue with email
+              </span>
+            </div>
+          </div>
 
           <EmailLoginForm />
 

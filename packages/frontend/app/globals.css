@@ -232,8 +232,11 @@
     @apply bg-background text-foreground;
   }
 
-  /* Default to dark mode */
+  /* Color scheme based on theme class */
   html {
+    color-scheme: light;
+  }
+  html.dark {
     color-scheme: dark;
   }
 }

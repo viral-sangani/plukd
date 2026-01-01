@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, Moon, Bell, AlertTriangle } from "lucide-react";
+import { Loader2, Moon, Sun, LogOut } from "lucide-react";
+import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { TelegramSection } from "@/components/settings/telegram-section";
@@ -45,12 +46,10 @@ function SectionHeader({ children }: { children: React.ReactNode }) {
 }
 
 // Card with corner brackets - Orbmarkets style
-function SettingsCard({ children, variant = "default" }: { children: React.ReactNode; variant?: "default" | "danger" }) {
+function SettingsCard({ children }: { children: React.ReactNode }) {
   return (
     <div
-      className={`relative bg-background-muted border rounded-none p-6 ${
-        variant === "danger" ? "border-red-900/50" : "border-border"
-      }`}
+      className="relative bg-background-muted border border-border rounded-none p-6"
       data-corners="diagonal"
     >
       {children}
@@ -62,10 +61,22 @@ export default function SettingsPage() {
   const [user, setUser] = React.useState<User | null>(null);
   const [telegramStatus, setTelegramStatus] = React.useState<TelegramStatus | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
+  const [mounted, setMounted] = React.useState(false);
 
-  // Placeholder preference states
-  const [darkMode] = React.useState(true);
-  const [emailNotifications, setEmailNotifications] = React.useState(false);
+  const { theme, setTheme } = useTheme();
+
+  // Ensure component is mounted before accessing theme to avoid hydration mismatch
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const handleSignOut = () => {
+    const form = document.createElement("form");
+    form.method = "POST";
+    form.action = "/api/auth/signout";
+    document.body.appendChild(form);
+    form.submit();
+  };
 
   React.useEffect(() => {
     const fetchData = async () => {
@@ -155,43 +166,6 @@ export default function SettingsPage() {
         </SettingsCard>
       </section>
 
-      {/* Preferences Section */}
-      <section className="mb-8">
-        <SectionHeader>Preferences</SectionHeader>
-        <SettingsCard>
-          <div className="space-y-4">
-            {/* Dark Mode */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Moon className="h-4 w-4 text-foreground-muted" />
-                <div>
-                  <label className="text-sm font-mono font-medium text-foreground">Dark mode</label>
-                  <p className="text-[11px] font-mono text-foreground-muted">Always on</p>
-                </div>
-              </div>
-              <Switch checked={darkMode} disabled />
-            </div>
-
-            <div className="border-t border-border" />
-
-            {/* Email Notifications */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Bell className="h-4 w-4 text-foreground-muted" />
-                <div>
-                  <label className="text-sm font-mono font-medium text-foreground">Email notifications</label>
-                  <p className="text-[11px] font-mono text-foreground-muted">Receive updates about your bookmarks</p>
-                </div>
-              </div>
-              <Switch
-                checked={emailNotifications}
-                onCheckedChange={setEmailNotifications}
-              />
-            </div>
-          </div>
-        </SettingsCard>
-      </section>
-
       {/* Telegram Integration Section */}
       <section className="mb-8">
         <TelegramSection
@@ -211,28 +185,53 @@ export default function SettingsPage() {
         />
       </section>
 
-      {/* Danger Zone Section */}
+      {/* Preferences Section */}
       <section className="mb-8">
-        <SectionHeader>Danger Zone</SectionHeader>
-        <SettingsCard variant="danger">
-          <div className="flex items-start gap-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-none bg-red-500/10 border border-red-900/30">
-              <AlertTriangle className="h-5 w-5 text-red-400" />
+        <SectionHeader>Preferences</SectionHeader>
+        <SettingsCard>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {mounted && theme === "dark" ? (
+                <Moon className="h-4 w-4 text-foreground-muted" />
+              ) : (
+                <Sun className="h-4 w-4 text-foreground-muted" />
+              )}
+              <div>
+                <label className="text-sm font-mono font-medium text-foreground">Dark mode</label>
+                <p className="text-[11px] font-mono text-foreground-muted">
+                  {mounted ? (theme === "dark" ? "Currently on" : "Currently off") : "Loading..."}
+                </p>
+              </div>
             </div>
-            <div className="flex-1">
-              <p className="text-sm font-mono font-medium text-foreground mb-1">Delete Account</p>
-              <p className="text-sm font-mono text-foreground-muted mb-4">
-                Permanently delete your account and all associated data. This action cannot be undone.
-              </p>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled
-                className="font-mono text-red-400 border-red-900/50 hover:bg-red-500/10 hover:text-red-400 disabled:opacity-50"
-              >
-                Delete Account
-              </Button>
+            <Switch
+              checked={mounted ? theme === "dark" : true}
+              onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")}
+              disabled={!mounted}
+            />
+          </div>
+        </SettingsCard>
+      </section>
+
+      {/* Account Section */}
+      <section className="mb-8">
+        <SectionHeader>Account</SectionHeader>
+        <SettingsCard>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <LogOut className="h-4 w-4 text-foreground-muted" />
+              <div>
+                <p className="text-sm font-mono font-medium text-foreground">Sign out</p>
+                <p className="text-[11px] font-mono text-foreground-muted">Sign out of your account on this device</p>
+              </div>
             </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSignOut}
+              className="font-mono"
+            >
+              Sign out
+            </Button>
           </div>
         </SettingsCard>
       </section>

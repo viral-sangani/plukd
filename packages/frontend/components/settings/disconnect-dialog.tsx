@@ -32,10 +32,10 @@ export function DisconnectDialog({
           <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-warning-background">
             <AlertTriangle className="size-6 text-warning" />
           </div>
-          <DialogTitle className="text-center">
+          <DialogTitle className="text-center font-mono">
             Disconnect Telegram?
           </DialogTitle>
-          <DialogDescription className="text-center">
+          <DialogDescription className="text-center font-mono">
             Are you sure you want to disconnect your Telegram account? You will
             no longer be able to save bookmarks by sending links to @PlukdBot.
           </DialogDescription>
@@ -43,7 +43,7 @@ export function DisconnectDialog({
         <div className="rounded-lg bg-warning-background/50 p-4">
           <div className="flex items-start gap-3">
             <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
-            <div className="text-sm text-foreground">
+            <div className="text-sm font-mono text-foreground">
               <p className="font-medium">What happens when you disconnect:</p>
               <ul className="mt-2 list-inside list-disc space-y-1 text-muted-foreground">
                 <li>You cannot save new bookmarks via Telegram</li>
@@ -58,7 +58,7 @@ export function DisconnectDialog({
             variant="outline"
             onClick={() => onOpenChange(false)}
             disabled={isDisconnecting}
-            className="flex-1"
+            className="flex-1 font-mono"
           >
             Cancel
           </Button>
@@ -66,7 +66,7 @@ export function DisconnectDialog({
             variant="destructive"
             onClick={onConfirm}
             disabled={isDisconnecting}
-            className="flex-1"
+            className="flex-1 font-mono"
           >
             {isDisconnecting ? "Disconnecting..." : "Disconnect"}
           </Button>
