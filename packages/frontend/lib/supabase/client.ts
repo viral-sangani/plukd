@@ -1,5 +1,5 @@
 import { createBrowserClient } from '@supabase/ssr'
-import { Database } from '@/types/database'
+import type { Database } from '@plukd/shared/types/database'
 
 export function createClient() {
   return createBrowserClient<Database>(

@@ -36,8 +36,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet"
 import { api } from "@/lib/api/client"
-import type { ContentSource, User } from "@plukd/shared/types"
-import type { BookmarkCounts } from "@/app/api/bookmarks/counts/route"
+import type { ContentSource, User, BookmarkCounts } from "@plukd/shared/types"
 
 // Map source keys to Lucide icon components
 const sourceIcons: Record<ContentSource, React.ComponentType<{ className?: string }>> = {

@@ -218,6 +218,17 @@ export interface ProcessingResult {
 }
 
 // API response types
+export interface BookmarkCounts {
+  total: number
+  bySource: {
+    twitter: number
+    reddit: number
+    youtube: number
+    linkedin: number
+    web: number
+  }
+}
+
 export interface BookmarkListResponse {
   bookmarks: Bookmark[]
   pagination: {
