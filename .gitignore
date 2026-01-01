@@ -41,3 +41,14 @@ yarn-error.log*
 next-env.d.ts
 
 supabase/.temp
+
+# Monorepo packages
+packages/*/node_modules
+packages/*/dist
+packages/*/.next
+packages/*/out
+
+# Environment files
+packages/*/.env
+packages/*/.env.local
+packages/*/.env*.local

@@ -1,0 +1,29 @@
+{
+  "name": "@plukd/backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "build": "bun build src/index.ts --outdir=dist --target=bun",
+    "start": "bun run dist/index.js",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@plukd/shared": "workspace:*",
+    "@ai-sdk/google": "^3.0.1",
+    "@supabase/supabase-js": "^2.89.0",
+    "ai": "^6.0.3",
+    "bullmq": "^5.34.0",
+    "grammy": "^1.38.4",
+    "hono": "^4.7.0",
+    "ioredis": "^5.4.1",
+    "jose": "^5.2.0",
+    "zod": "^4.2.1"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.0",
+    "typescript": "^5.7.0"
+  }
+}
