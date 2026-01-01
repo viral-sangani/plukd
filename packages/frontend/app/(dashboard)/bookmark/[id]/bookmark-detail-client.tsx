@@ -58,6 +58,20 @@ export function BookmarkDetailClient({ id, initialBookmark }: BookmarkDetailClie
   // Use fetched data or initial bookmark from server
   const displayBookmark = bookmark ?? initialBookmark
 
+  // Check if AI processing is in progress (must be before any conditional returns)
+  const isProcessing = displayBookmark?.processing_status === 'pending' || displayBookmark?.processing_status === 'processing'
+
+  // Auto-poll when processing is in progress
+  useEffect(() => {
+    if (!isProcessing) return
+
+    const interval = setInterval(() => {
+      refetch()
+    }, 3000) // Poll every 3 seconds
+
+    return () => clearInterval(interval)
+  }, [isProcessing, refetch])
+
   const handleDelete = async () => {
     if (!displayBookmark) return
 
@@ -220,22 +234,7 @@ export function BookmarkDetailClient({ id, initialBookmark }: BookmarkDetailClie
     category,
     tags,
     created_at,
-    processing_status,
   } = displayBookmark
-
-  // Check if AI processing is in progress
-  const isProcessing = processing_status === 'pending' || processing_status === 'processing'
-
-  // Auto-poll when processing is in progress
-  useEffect(() => {
-    if (!isProcessing) return
-
-    const interval = setInterval(() => {
-      refetch()
-    }, 3000) // Poll every 3 seconds
-
-    return () => clearInterval(interval)
-  }, [isProcessing, refetch])
 
   const thumbnailUrl = getThumbnailUrl(displayBookmark)
 

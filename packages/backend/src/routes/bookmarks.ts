@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { authMiddleware } from '../middleware/auth'
 import { supabaseAdmin } from '../config/supabase'
+import { enqueueBookmarkProcessing } from '../jobs/queue'
 import {
   detectSource,
   type Category,
@@ -168,9 +169,8 @@ bookmarksRoutes.post('/', async (c) => {
       return c.json({ error: 'Failed to create bookmark' }, 500)
     }
 
-    // TODO: enqueueBookmarkProcessing(bookmark.id, bookmark.url, user.id)
-    // For now, bookmark processing will be handled by a separate worker/queue
-    // Agent 5 will set up BullMQ for background processing
+    // Enqueue for background processing
+    await enqueueBookmarkProcessing(bookmark.id, bookmark.url, user.id)
 
     return c.json({
       success: true,
@@ -285,8 +285,8 @@ bookmarksRoutes.post('/process', async (c) => {
       return c.json({ error: 'Failed to reset bookmark status' }, 500)
     }
 
-    // TODO: enqueueBookmarkProcessing(bookmark.id, bookmark.url, user.id)
-    // Agent 5 will set up BullMQ for background processing
+    // Enqueue for background processing
+    await enqueueBookmarkProcessing(bookmark.id, bookmark.url, user.id)
 
     return c.json({
       success: true,
