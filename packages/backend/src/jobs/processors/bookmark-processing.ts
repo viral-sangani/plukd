@@ -220,7 +220,7 @@ export async function processBookmarkJob(job: Job<BookmarkProcessingJob>): Promi
     // If we have extracted content, save it even without AI results
     if (extractedContent) {
       console.log(`[processor] Saving extracted content despite AI failure`)
-      await supabaseAdmin
+      const { error: partialUpdateError } = await supabaseAdmin
         .from('bookmarks')
         .update({
           title: extractedContent.title,
@@ -235,12 +235,21 @@ export async function processBookmarkJob(job: Job<BookmarkProcessingJob>): Promi
           updated_at: new Date().toISOString(),
         } as never)
         .eq('id', bookmarkId)
-    } else {
-      // No extracted content and AI failed - just mark as failed
-      await updateStatus(bookmarkId, 'failed', `Processing failed: ${errorMessage}`)
+
+      if (partialUpdateError) {
+        console.error(`[processor] Failed to save extracted content: ${partialUpdateError.message}`)
+        throw aiError
+      }
+
+      // Content was saved successfully - don't re-throw
+      // The bookmark has useful content even without AI categorization
+      await job.updateProgress(100)
+      console.log(`[processor] Saved extracted content for bookmark ${bookmarkId} (AI failed but extraction succeeded)`)
+      return
     }
 
-    // Re-throw so BullMQ knows the job failed
+    // No extracted content and AI failed - mark as failed and throw
+    await updateStatus(bookmarkId, 'failed', `Processing failed: ${errorMessage}`)
     throw aiError
   }
 }

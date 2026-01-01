@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useCallback, useEffect, useRef } from 'react'
 import { api } from '@/lib/api/client'
 import type { Bookmark, BookmarkListResponse, ProcessingStatus } from '@plukd/shared/types'
 
@@ -67,6 +68,150 @@ export function usePrefetchBookmarks() {
       staleTime: 30 * 1000,
     })
   }
+}
+
+/**
+ * Hook to prefetch the next page of bookmarks when user scrolls near the bottom.
+ * Automatically prefetches the next page when the scroll threshold is reached.
+ *
+ * @param currentParams - Current query parameters including page number
+ * @param totalPages - Total number of pages available
+ * @param scrollThreshold - Percentage of scroll position to trigger prefetch (0-1, default 0.75)
+ *
+ * @example
+ * const { scrollContainerRef } = usePrefetchNextPage(
+ *   { page: currentPage, limit: 10 },
+ *   totalPages
+ * )
+ *
+ * <div ref={scrollContainerRef}>...</div>
+ */
+export function usePrefetchNextPage(
+  currentParams: UseBookmarksParams,
+  totalPages: number,
+  scrollThreshold = 0.75
+) {
+  const queryClient = useQueryClient()
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const hasPrefetchedRef = useRef(false)
+  const currentPage = currentParams.page || 1
+
+  const prefetchNextPage = useCallback(() => {
+    const nextPage = currentPage + 1
+
+    // Don't prefetch if we're on the last page or already prefetched
+    if (nextPage > totalPages || hasPrefetchedRef.current) {
+      return
+    }
+
+    const nextPageParams = { ...currentParams, page: nextPage }
+
+    // Check if next page is already cached
+    const existingData = queryClient.getQueryData<BookmarkListResponse>(
+      bookmarksQueryKey(nextPageParams)
+    )
+
+    if (existingData) {
+      return
+    }
+
+    hasPrefetchedRef.current = true
+
+    queryClient.prefetchQuery({
+      queryKey: bookmarksQueryKey(nextPageParams),
+      queryFn: () => fetchBookmarks(nextPageParams),
+      staleTime: 30 * 1000,
+    })
+  }, [queryClient, currentParams, currentPage, totalPages])
+
+  // Reset prefetch flag when page changes
+  useEffect(() => {
+    hasPrefetchedRef.current = false
+  }, [currentPage])
+
+  // Set up scroll listener
+  useEffect(() => {
+    const container = scrollContainerRef.current
+    if (!container) return
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = container
+      const scrollPercentage = (scrollTop + clientHeight) / scrollHeight
+
+      if (scrollPercentage >= scrollThreshold) {
+        prefetchNextPage()
+      }
+    }
+
+    container.addEventListener('scroll', handleScroll, { passive: true })
+    return () => container.removeEventListener('scroll', handleScroll)
+  }, [prefetchNextPage, scrollThreshold])
+
+  // Also prefetch when near the end based on current data
+  const prefetchIfNearEnd = useCallback(
+    (visibleItemIndex: number, totalItems: number) => {
+      // Prefetch when viewing items in the last 25% of the list
+      if (totalItems > 0 && visibleItemIndex / totalItems >= scrollThreshold) {
+        prefetchNextPage()
+      }
+    },
+    [prefetchNextPage, scrollThreshold]
+  )
+
+  return {
+    scrollContainerRef,
+    prefetchNextPage,
+    prefetchIfNearEnd,
+  }
+}
+
+/**
+ * Hook to prefetch adjacent pages (previous and next) for smoother pagination.
+ * Useful when using traditional pagination controls.
+ *
+ * @param currentParams - Current query parameters including page number
+ * @param totalPages - Total number of pages available
+ *
+ * @example
+ * usePrefetchAdjacentPages({ page: currentPage, limit: 10 }, totalPages)
+ */
+export function usePrefetchAdjacentPages(
+  currentParams: UseBookmarksParams,
+  totalPages: number
+) {
+  const queryClient = useQueryClient()
+  const currentPage = currentParams.page || 1
+
+  useEffect(() => {
+    const pagesToPrefetch: number[] = []
+
+    // Prefetch next page if available
+    if (currentPage < totalPages) {
+      pagesToPrefetch.push(currentPage + 1)
+    }
+
+    // Prefetch previous page if available (for back navigation)
+    if (currentPage > 1) {
+      pagesToPrefetch.push(currentPage - 1)
+    }
+
+    pagesToPrefetch.forEach((page) => {
+      const pageParams = { ...currentParams, page }
+
+      // Check if page is already cached
+      const existingData = queryClient.getQueryData<BookmarkListResponse>(
+        bookmarksQueryKey(pageParams)
+      )
+
+      if (!existingData) {
+        queryClient.prefetchQuery({
+          queryKey: bookmarksQueryKey(pageParams),
+          queryFn: () => fetchBookmarks(pageParams),
+          staleTime: 30 * 1000,
+        })
+      }
+    })
+  }, [queryClient, currentParams, currentPage, totalPages])
 }
 
 // Helper to get optimistic update data

@@ -87,11 +87,18 @@ bookmarksRoutes.get('/', async (c) => {
     }
 
     if (params.search) {
-      // Use full-text search on title, blurb, and summary
-      dbQuery = dbQuery.textSearch('search_vector', params.search, {
-        type: 'websearch',
-        config: 'english',
-      })
+      // Search combines:
+      // 1. PostgreSQL full-text search on search_vector (title, blurb, summary, content)
+      //    - search_vector is a TSVECTOR column with weighted fields:
+      //      A: title, B: blurb, C: summary, D: content
+      // 2. ILIKE on URL for domain/path matching
+      // 3. ILIKE on category for category name matching
+      // 4. Array contains on tags for exact tag matching
+      const searchTerm = params.search.trim()
+      const searchTermLower = searchTerm.toLowerCase()
+      dbQuery = dbQuery.or(
+        `search_vector.wfts(english).${searchTerm},url.ilike.%${searchTerm}%,category.ilike.%${searchTerm}%,tags.cs.{${searchTermLower}}`
+      )
     }
 
     // Apply sorting

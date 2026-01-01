@@ -2,11 +2,13 @@ export { useUser, userQueryKey } from './use-user'
 export {
   useBookmarks,
   usePrefetchBookmarks,
+  usePrefetchNextPage,
+  usePrefetchAdjacentPages,
   bookmarksQueryKey,
   getOptimisticBookmarkUpdate,
   type UseBookmarksParams,
 } from './use-bookmarks'
-export { useBookmark, bookmarkQueryKey } from './use-bookmark'
+export { useBookmark, bookmarkQueryKey, usePrefetchBookmark } from './use-bookmark'
 export {
   useUpdateBookmark,
   useDeleteBookmark,

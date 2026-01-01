@@ -57,9 +57,9 @@ export const summarizationSchema = z.object({
   summary: z
     .string()
     .min(200)
-    .max(2000)
+    .max(1500)
     .describe(
-      'A detailed 3-5 paragraph summary covering main points, key insights, and takeaways.'
+      'A concise bullet-point summary with **bold emphasis** on key phrases. 5-10 short bullet points, each 1-2 sentences max.'
     ),
 })
 

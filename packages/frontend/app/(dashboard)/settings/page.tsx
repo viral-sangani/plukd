@@ -1,8 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, Moon, Sun, LogOut } from "lucide-react";
+import { Loader2, Moon, Sun, LogOut, AlertCircle, RefreshCw } from "lucide-react";
 import { useTheme } from "next-themes";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { TelegramSection } from "@/components/settings/telegram-section";
@@ -14,19 +16,6 @@ interface TelegramStatus {
   username: string | null;
   linkedAt: string | null;
 }
-
-// Mock user for development
-const mockUser: User = {
-  id: "mock-user-1",
-  email: "john.doe@gmail.com",
-  name: "John Doe",
-  avatar_url: null,
-  telegram_chat_id: null,
-  telegram_username: null,
-  telegram_linked_at: null,
-  created_at: "2024-12-15T10:30:00Z",
-  updated_at: new Date().toISOString(),
-};
 
 function formatDate(dateString: string): string {
   return new Date(dateString).toLocaleDateString("en-US", {
@@ -58,9 +47,11 @@ function SettingsCard({ children }: { children: React.ReactNode }) {
 }
 
 export default function SettingsPage() {
+  const router = useRouter();
   const [user, setUser] = React.useState<User | null>(null);
   const [telegramStatus, setTelegramStatus] = React.useState<TelegramStatus | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
   const [mounted, setMounted] = React.useState(false);
 
   const { theme, setTheme } = useTheme();
@@ -78,43 +69,90 @@ export default function SettingsPage() {
     form.submit();
   };
 
-  React.useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [userData, telegramData] = await Promise.all([
-          api.get<User>("/api/user").catch(() => null),
-          api.get<TelegramStatus>("/api/telegram/link").catch(() => null),
-        ]);
+  const fetchData = React.useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
 
-        if (userData) {
-          setUser(userData);
-        } else {
-          // Use mock user when not authenticated
-          setUser(mockUser);
-        }
+    try {
+      const [userData, telegramData] = await Promise.all([
+        api.get<User>("/api/user"),
+        api.get<TelegramStatus>("/api/telegram/link").catch(() => null),
+      ]);
 
-        if (telegramData) {
-          setTelegramStatus(telegramData);
-        } else {
-          setTelegramStatus({ isLinked: false, username: null, linkedAt: null });
-        }
-      } catch (error) {
-        console.error("Error fetching settings data:", error);
-        // Use mock data on error
-        setUser(mockUser);
+      setUser(userData);
+
+      if (telegramData) {
+        setTelegramStatus(telegramData);
+      } else {
         setTelegramStatus({ isLinked: false, username: null, linkedAt: null });
-      } finally {
-        setIsLoading(false);
       }
-    };
+    } catch (err) {
+      console.error("Error fetching settings data:", err);
+      if (err instanceof Error && err.message === "Unauthorized") {
+        router.push("/login");
+        return;
+      }
+      setError(err instanceof Error ? err.message : "Failed to load settings");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [router]);
 
+  React.useEffect(() => {
     fetchData();
-  }, []);
+  }, [fetchData]);
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-16">
         <Loader2 className="h-8 w-8 animate-spin text-foreground" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 gap-4">
+        <AlertCircle className="h-12 w-12 text-red-500" />
+        <div className="text-center">
+          <h2 className="text-lg font-mono font-semibold text-foreground mb-2">
+            Failed to load settings
+          </h2>
+          <p className="text-sm font-mono text-foreground-muted mb-4">
+            {error}
+          </p>
+          <Button
+            variant="outline"
+            onClick={fetchData}
+            className="font-mono gap-2"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Try again
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 gap-4">
+        <AlertCircle className="h-12 w-12 text-foreground-muted" />
+        <div className="text-center">
+          <h2 className="text-lg font-mono font-semibold text-foreground mb-2">
+            Not signed in
+          </h2>
+          <p className="text-sm font-mono text-foreground-muted mb-4">
+            Please sign in to view your settings.
+          </p>
+          <Button
+            variant="outline"
+            onClick={() => router.push("/login")}
+            className="font-mono"
+          >
+            Sign in
+          </Button>
+        </div>
       </div>
     );
   }
@@ -135,7 +173,7 @@ export default function SettingsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <label className="text-sm font-mono font-medium text-foreground">Name</label>
-                <p className="text-sm font-mono text-foreground-muted">{user?.name || "User"}</p>
+                <p className="text-sm font-mono text-foreground-muted">{user.name || "User"}</p>
               </div>
               <span className="text-[10px] font-mono uppercase tracking-wider text-foreground-muted">From Google</span>
             </div>
@@ -146,7 +184,7 @@ export default function SettingsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <label className="text-sm font-mono font-medium text-foreground">Email</label>
-                <p className="text-sm font-mono text-foreground-muted">{user?.email}</p>
+                <p className="text-sm font-mono text-foreground-muted">{user.email}</p>
               </div>
               <span className="text-[10px] font-mono uppercase tracking-wider text-foreground-muted">Read-only</span>
             </div>
@@ -158,7 +196,7 @@ export default function SettingsPage() {
               <div>
                 <label className="text-sm font-mono font-medium text-foreground">Member since</label>
                 <p className="text-sm font-mono text-foreground-muted">
-                  {user?.created_at ? formatDate(user.created_at) : "Unknown"}
+                  {user.created_at ? formatDate(user.created_at) : "Unknown"}
                 </p>
               </div>
             </div>
@@ -178,8 +216,15 @@ export default function SettingsPage() {
             try {
               await api.delete("/api/telegram/link");
               setTelegramStatus({ isLinked: false, username: null, linkedAt: null });
-            } catch (error) {
-              console.error("Error disconnecting:", error);
+              toast.success("Telegram disconnected successfully", {
+                description: "You can reconnect anytime by sending /start to @PlukdBot",
+              });
+            } catch (err) {
+              console.error("Error disconnecting:", err);
+              toast.error("Failed to disconnect Telegram", {
+                description: err instanceof Error ? err.message : "Please try again",
+              });
+              throw err;
             }
           }}
         />

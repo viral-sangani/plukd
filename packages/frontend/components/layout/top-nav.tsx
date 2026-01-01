@@ -255,7 +255,7 @@ function SourcesDropdown({ counts, currentSource }: SourcesDropdownProps) {
           return (
             <DropdownMenuItem key={source} asChild>
               <Link
-                href={`/source/${source}`}
+                href={`/?source=${source}`}
                 className={cn(
                   "flex items-center gap-2 cursor-pointer",
                   isActive && "text-accent"
@@ -275,79 +275,16 @@ function SourcesDropdown({ counts, currentSource }: SourcesDropdownProps) {
   )
 }
 
-interface UserDropdownProps {
-  user: User | null
-  isLoading?: boolean
-}
-
-function UserDropdown({ user, isLoading = false }: UserDropdownProps) {
-  if (isLoading || !user) {
-    return (
-      <div className="h-8 w-8 rounded-full bg-background-emphasis animate-pulse" />
-    )
-  }
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button className="flex items-center gap-2 rounded-full hover:ring-2 hover:ring-border transition-all">
-          <Avatar className="h-8 w-8">
-            <AvatarImage src={user.avatar_url || undefined} alt={user.name || user.email} />
-            <AvatarFallback className="bg-background-emphasis text-foreground text-xs font-mono">
-              {getInitials(user.name, user.email)}
-            </AvatarFallback>
-          </Avatar>
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="end"
-        sideOffset={8}
-        className="w-56 bg-background border-border"
-      >
-        <div className="px-2 py-1.5">
-          <p className="text-sm font-medium text-foreground font-mono">
-            {user.name || "User"}
-          </p>
-          <p className="text-xs text-foreground-muted truncate font-mono">{user.email}</p>
-        </div>
-        <DropdownMenuSeparator className="bg-border" />
-        <DropdownMenuItem asChild>
-          <Link href="/settings" className="flex items-center gap-2 cursor-pointer">
-            <Settings className="size-4" />
-            <span>Settings</span>
-          </Link>
-        </DropdownMenuItem>
-        <DropdownMenuSeparator className="bg-border" />
-        <DropdownMenuItem
-          onClick={() => {
-            const form = document.createElement("form")
-            form.method = "POST"
-            form.action = "/api/auth/signout"
-            document.body.appendChild(form)
-            form.submit()
-          }}
-          className="flex items-center gap-2 cursor-pointer text-red-400"
-        >
-          <LogOut className="size-4" />
-          <span>Log out</span>
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
-}
-
 interface MobileNavContentProps {
   pathname: string
   user: User | null
   counts: BookmarkCounts | null
+  currentSource: string | null
   isLoading?: boolean
   onNavClick?: () => void
 }
 
-function MobileNavContent({ pathname, user, counts, isLoading = false, onNavClick }: MobileNavContentProps) {
-  const isSourcePage = pathname.startsWith("/source/")
-  const currentSource = isSourcePage ? pathname.split("/source/")[1] : null
-
+function MobileNavContent({ pathname, user, counts, currentSource, isLoading = false, onNavClick }: MobileNavContentProps) {
   return (
     <div className="flex flex-col h-full">
       {/* Search */}
@@ -365,7 +302,7 @@ function MobileNavContent({ pathname, user, counts, isLoading = false, onNavClic
           className={cn(
             "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors",
             "text-foreground-muted hover:text-foreground hover:bg-background-emphasis",
-            pathname === "/" && "text-foreground bg-background-emphasis border-l-2 border-accent"
+            pathname === "/" && !currentSource && "text-foreground bg-background-emphasis border-l-2 border-accent"
           )}
         >
           <Bookmark className="size-4" />
@@ -383,7 +320,7 @@ function MobileNavContent({ pathname, user, counts, isLoading = false, onNavClic
 
         {sources.map((source) => {
           const Icon = sourceIcons[source]
-          const href = `/source/${source}`
+          const href = `/?source=${source}`
           const isActive = currentSource === source
           return (
             <Link
@@ -467,33 +404,21 @@ function MobileNavContent({ pathname, user, counts, isLoading = false, onNavClic
   )
 }
 
-const mockUser: User = {
-  id: "mock-user-1",
-  email: "user@plukd.app",
-  name: "Demo User",
-  avatar_url: null,
-  telegram_chat_id: null,
-  telegram_username: null,
-  telegram_linked_at: null,
-  created_at: new Date().toISOString(),
-  updated_at: new Date().toISOString(),
-}
-
 interface TopNavProps {
   className?: string
 }
 
-export function TopNav({ className }: TopNavProps) {
+function TopNavInner({ className }: TopNavProps) {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const [open, setOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [user, setUser] = useState<User | null>(null)
   const [counts, setCounts] = useState<BookmarkCounts | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
-  // Determine current source from pathname
-  const isSourcePage = pathname.startsWith("/source/")
-  const currentSource = isSourcePage ? pathname.split("/source/")[1] : null
+  // Determine current source from query params
+  const currentSource = searchParams.get("source")
 
   // Fetch user data once on mount
   useEffect(() => {
@@ -502,7 +427,9 @@ export function TopNav({ className }: TopNavProps) {
         const userData = await api.get<User>("/api/user")
         setUser(userData)
       } catch {
-        setUser(mockUser)
+        // User fetch failed - user will remain null and show loading skeleton
+        // The middleware handles redirecting unauthenticated users to /login
+        setUser(null)
       } finally {
         setIsLoading(false)
       }
@@ -581,6 +508,7 @@ export function TopNav({ className }: TopNavProps) {
               pathname={pathname}
               user={user}
               counts={counts}
+              currentSource={currentSource}
               isLoading={isLoading}
               onNavClick={closeSheet}
             />
@@ -674,6 +602,35 @@ export function TopNav({ className }: TopNavProps) {
             </Button>
           </Link>
         </div>
+      </div>
+    </header>
+  )
+}
+
+export function TopNav({ className }: TopNavProps) {
+  return (
+    <Suspense fallback={<TopNavFallback className={className} />}>
+      <TopNavInner className={className} />
+    </Suspense>
+  )
+}
+
+function TopNavFallback({ className }: TopNavProps) {
+  return (
+    <header
+      className={cn(
+        "fixed top-0 left-0 right-0 h-14 bg-background border-b border-border z-50",
+        className
+      )}
+    >
+      <div className="h-full max-w-screen-2xl mx-auto px-4 flex items-center gap-4 relative">
+        <div className="h-8 w-8 rounded bg-background-emphasis animate-pulse lg:hidden" />
+        <div className="flex items-center gap-2 shrink-0">
+          <div className="h-7 w-7 rounded-lg bg-background-emphasis animate-pulse" />
+          <div className="h-5 w-16 bg-background-emphasis animate-pulse hidden sm:block" />
+        </div>
+        <div className="flex-1" />
+        <div className="h-8 w-8 rounded-full bg-background-emphasis animate-pulse" />
       </div>
     </header>
   )

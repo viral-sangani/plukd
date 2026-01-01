@@ -6,7 +6,7 @@ import type { ClassificationResult, ContentType } from './classification'
  */
 export interface SummarizationResult {
   blurb: string // 2-3 sentences, 50-200 chars
-  summary: string // 3-5 paragraphs, 200-1500 chars
+  summary: string // bullet points with **bold** emphasis, 300-1200 chars
 }
 
 /**
@@ -154,18 +154,23 @@ Create TWO outputs:
 - Capture the single most important insight or value
 - Be specific, not generic
 
-2. SUMMARY (3-5 paragraphs, 200-1500 characters):
-- Provide enough detail for quick reference without re-reading original
-- Structure for scannability (key points, takeaways)
-- Include specific data, quotes, or examples that are worth remembering
-- End with actionable insights or why this matters
+2. SUMMARY (concise bullet points, 300-1200 characters total):
+- Use 5-10 bullet points as needed
+- Each point: ONE key insight in 1-2 short sentences
+- **Bold** only the most critical phrase per point
+- Be extremely concise - every word must earn its place
+- No filler phrases or lengthy explanations
+
+Format example:
+• **Key insight** - brief supporting detail
+• **Another point** - minimal context
+• **Actionable takeaway** - what to do next
 
 Guidelines:
 - Write for future-you who saved this and wants to remember why
-- Be objective and accurate
-- Preserve technical terminology
-- For opinions, note they are opinions
-- For discussions, represent multiple viewpoints fairly
+- Be objective and accurate - preserve technical terminology
+- Keep each bullet scannable at a glance
+- For opinions/discussions, represent viewpoints fairly
 
 Respond in JSON only:
 {"blurb":"...","summary":"..."}`

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
@@ -48,10 +48,40 @@ function formatDisplayUrl(url: string): string {
   }
 }
 
+/**
+ * Renders text with simple markdown formatting as React elements.
+ * Handles **bold** text safely without dangerouslySetInnerHTML.
+ */
+function MarkdownText({ text }: { text: string }) {
+  // Split text by **bold** patterns and render appropriately
+  const parts = text.split(/(\*\*[^*]+\*\*)/g)
+
+  return (
+    <>
+      {parts.map((part, index) => {
+        // Check if this part is bold (wrapped in **)
+        if (part.startsWith('**') && part.endsWith('**')) {
+          const boldText = part.slice(2, -2)
+          return (
+            <strong key={index} className="text-foreground font-medium">
+              {boldText}
+            </strong>
+          )
+        }
+        return <span key={index}>{part}</span>
+      })}
+    </>
+  )
+}
+
+const PROCESSING_TIMEOUT_MS = 300000 // 5 minutes
+
 export function BookmarkDetailClient({ id, initialBookmark }: BookmarkDetailClientProps) {
   const router = useRouter()
   const [copied, setCopied] = useState(false)
   const [isRegenerating, setIsRegenerating] = useState(false)
+  const [processingTimedOut, setProcessingTimedOut] = useState(false)
+  const processingStartTimeRef = useRef<number | null>(null)
   const { data: bookmark, isLoading, isError, error, refetch } = useBookmark(id)
   const deleteBookmark = useDeleteBookmark()
 
@@ -61,16 +91,43 @@ export function BookmarkDetailClient({ id, initialBookmark }: BookmarkDetailClie
   // Check if AI processing is in progress (must be before any conditional returns)
   const isProcessing = displayBookmark?.processing_status === 'pending' || displayBookmark?.processing_status === 'processing'
 
-  // Auto-poll when processing is in progress
+  // Auto-poll when processing is in progress with timeout detection
   useEffect(() => {
-    if (!isProcessing) return
+    if (!isProcessing) {
+      // Reset refs when processing completes
+      processingStartTimeRef.current = null
+      return
+    }
+
+    if (processingTimedOut) return
+
+    // Initialize start time when processing begins
+    if (processingStartTimeRef.current === null) {
+      processingStartTimeRef.current = Date.now()
+    }
 
     const interval = setInterval(() => {
+      // Check for timeout
+      if (processingStartTimeRef.current && Date.now() - processingStartTimeRef.current > PROCESSING_TIMEOUT_MS) {
+        setProcessingTimedOut(true)
+        return
+      }
       refetch()
     }, 3000) // Poll every 3 seconds
 
     return () => clearInterval(interval)
-  }, [isProcessing, refetch])
+  }, [isProcessing, processingTimedOut, refetch])
+
+  // Reset timeout state when processing completes
+  useEffect(() => {
+    if (!isProcessing && processingTimedOut) {
+      // Defer to avoid synchronous setState in effect
+      const timeoutId = setTimeout(() => {
+        setProcessingTimedOut(false)
+      }, 0)
+      return () => clearTimeout(timeoutId)
+    }
+  }, [isProcessing, processingTimedOut])
 
   const handleDelete = async () => {
     if (!displayBookmark) return
@@ -292,7 +349,7 @@ export function BookmarkDetailClient({ id, initialBookmark }: BookmarkDetailClie
           {/* Title & Meta */}
           <div className="flex-1 min-w-0">
             <h1 className="text-xl lg:text-2xl font-mono font-medium text-foreground leading-tight mb-3">
-              {title}
+              {isProcessing && title === url ? 'Processing bookmark...' : title}
             </h1>
             <div className="flex flex-wrap items-center gap-3">
               <SourceBadge source={source} size="sm" />
@@ -327,14 +384,40 @@ export function BookmarkDetailClient({ id, initialBookmark }: BookmarkDetailClie
             </h2>
             <div className="bg-background border border-border rounded-none p-4">
               <p className="text-sm font-mono text-foreground-muted leading-relaxed whitespace-pre-line">
-                {summary}
+                <MarkdownText text={summary} />
               </p>
             </div>
           </section>
         )}
 
         {/* AI Processing Status / Regenerate Button */}
-        {isProcessing || isRegenerating ? (
+        {processingTimedOut && isProcessing ? (
+          <section className="mb-8">
+            <div className="bg-red-500/5 border border-red-500/20 rounded-none p-4 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <AlertCircle className="size-5 text-red-400 flex-shrink-0" />
+                <div>
+                  <p className="text-sm font-mono font-medium text-red-400">
+                    Processing is taking longer than expected
+                  </p>
+                  <p className="text-xs font-mono text-foreground-muted mt-0.5">
+                    The bookmark may be stuck. Try regenerating the summary.
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="font-mono flex-shrink-0 border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300"
+                onClick={handleRegenerate}
+                disabled={isRegenerating}
+              >
+                <Sparkles className="size-4" />
+                Regenerate
+              </Button>
+            </div>
+          </section>
+        ) : isProcessing || isRegenerating ? (
           <section className="mb-8">
             <div className="bg-accent/5 border border-accent/20 rounded-none p-4 flex items-center gap-3">
               <Loader2 className="size-5 animate-spin text-accent" />

@@ -14,21 +14,13 @@ import { Separator } from "@/components/ui/separator";
 import { Camera } from "lucide-react";
 
 interface ProfileSectionProps {
-  user?: {
+  user: {
     name: string;
     email: string;
     avatarUrl?: string;
     createdAt: string;
   };
 }
-
-// Mock user data for UI development
-const mockUser = {
-  name: "John Doe",
-  email: "john.doe@gmail.com",
-  avatarUrl: undefined,
-  createdAt: "2024-12-15T10:30:00Z",
-};
 
 function getInitials(name: string): string {
   return name
@@ -47,7 +39,7 @@ function formatDate(dateString: string): string {
   });
 }
 
-export function ProfileSection({ user = mockUser }: ProfileSectionProps) {
+export function ProfileSection({ user }: ProfileSectionProps) {
   return (
     <div className="space-y-6">
       {/* Section Header */}

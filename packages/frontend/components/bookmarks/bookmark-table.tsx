@@ -7,6 +7,25 @@ import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import type { Bookmark, RawMetadata } from '@plukd/shared/types'
 import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragOverlay,
+  type DragStartEvent,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import {
   Table,
   TableBody,
   TableCell,
@@ -66,6 +85,8 @@ import {
 import { cn, formatTimeAgo } from '@/lib/utils'
 import { api } from '@/lib/api/client'
 
+const BOOKMARK_ORDER_STORAGE_KEY = 'plukd-bookmark-order'
+
 /**
  * Gets the thumbnail URL from bookmark media_urls or OG image
  */
@@ -121,12 +142,351 @@ function getDisplayTitle(title: string, url: string): string {
   return title
 }
 
+/**
+ * Load bookmark order from localStorage
+ */
+function loadBookmarkOrder(): string[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const stored = localStorage.getItem(BOOKMARK_ORDER_STORAGE_KEY)
+    return stored ? JSON.parse(stored) : []
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Save bookmark order to localStorage
+ */
+function saveBookmarkOrder(order: string[]): void {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem(BOOKMARK_ORDER_STORAGE_KEY, JSON.stringify(order))
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+interface SortableBookmarkRowProps {
+  bookmark: Bookmark
+  isSelected: boolean
+  onSelectRow: (id: string, checked: boolean) => void
+  onRowClick: (bookmark: Bookmark) => void
+  onCopyUrl: (url: string, e: React.MouseEvent) => void
+  onOpenOriginal: (url: string, e: React.MouseEvent) => void
+  onEdit: (bookmarkId: string, e: React.MouseEvent) => void
+  onDelete: (bookmark: Bookmark, e: React.MouseEvent) => void
+}
+
+function SortableBookmarkRow({
+  bookmark,
+  isSelected,
+  onSelectRow,
+  onRowClick,
+  onCopyUrl,
+  onOpenOriginal,
+  onEdit,
+  onDelete,
+}: SortableBookmarkRowProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: bookmark.id })
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 50 : undefined,
+  }
+
+  return (
+    <TableRow
+      ref={setNodeRef}
+      style={style}
+      data-state={isSelected ? 'selected' : undefined}
+      className={cn(
+        'group cursor-pointer transition-all',
+        'border-l-2 border-l-[#080808] hover:border-l-accent hover:bg-[#121212]',
+        'border-b border-border last:border-0',
+        isSelected && 'bg-accent/5 border-l-accent',
+        isDragging && 'opacity-50 bg-[#1a1a1a]'
+      )}
+      onClick={() => onRowClick(bookmark)}
+    >
+      {/* Checkbox */}
+      <TableCell
+        className="pl-4 pr-2 py-3"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <Checkbox
+          checked={isSelected}
+          onCheckedChange={(checked) =>
+            onSelectRow(bookmark.id, checked as boolean)
+          }
+          aria-label={`Select ${bookmark.title}`}
+        />
+      </TableCell>
+
+      {/* Drag handle */}
+      <TableCell
+        className="px-2 py-3"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          className={cn(
+            'cursor-grab active:cursor-grabbing transition-opacity text-foreground-muted hover:text-foreground-secondary',
+            'opacity-0 group-hover:opacity-100 flex items-center justify-center',
+            isDragging && 'cursor-grabbing opacity-100'
+          )}
+          aria-label="Drag to reorder"
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="size-4" />
+        </button>
+      </TableCell>
+
+      {/* Thumbnail */}
+      <TableCell className="pl-2 pr-4 py-3">
+        <div className="relative size-12 flex-shrink-0 overflow-hidden rounded-none bg-background-emphasis">
+          {getThumbnailUrl(bookmark) ? (
+            <Image
+              src={getThumbnailUrl(bookmark)!}
+              alt=""
+              fill
+              className="object-cover"
+              sizes="48px"
+              unoptimized
+            />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center text-foreground-muted">
+              <ImageIcon className="size-4" />
+            </div>
+          )}
+        </div>
+      </TableCell>
+
+      {/* Title & URL with hover preview */}
+      <TableCell className="py-3 min-w-0">
+        <HoverCard openDelay={300} closeDelay={100}>
+          <HoverCardTrigger asChild>
+            <Link
+              href={`/bookmark/${bookmark.id}`}
+              className="block min-w-0"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="space-y-0.5 min-w-0">
+                <div className="font-mono font-medium text-foreground line-clamp-1 text-sm flex items-center gap-2">
+                  {getDisplayTitle(bookmark.title, bookmark.url)}
+                  {(bookmark.processing_status === 'pending' || bookmark.processing_status === 'processing') && (
+                    <span className="inline-flex items-center gap-1 text-[10px] text-accent shrink-0">
+                      <Loader2 className="size-3 animate-spin" />
+                      <span className="hidden sm:inline">Processing...</span>
+                    </span>
+                  )}
+                </div>
+                <div className="text-[11px] text-foreground-muted line-clamp-1 font-mono">
+                  {formatDisplayUrl(bookmark.url)}
+                </div>
+              </div>
+            </Link>
+          </HoverCardTrigger>
+          <HoverCardContent
+            side="right"
+            align="start"
+            sideOffset={8}
+            className="w-72"
+          >
+            <BookmarkPreviewCard bookmark={bookmark} />
+          </HoverCardContent>
+        </HoverCard>
+      </TableCell>
+
+      {/* Source */}
+      <TableCell className="py-3">
+        <SourceBadge source={bookmark.source} size="sm" />
+      </TableCell>
+
+      {/* Category */}
+      <TableCell className="py-3">
+        <CategoryBadge category={bookmark.category} />
+      </TableCell>
+
+      {/* Date */}
+      <TableCell className="py-3 text-xs text-foreground-muted font-mono tabular-nums">
+        {formatTimeAgo(bookmark.created_at)}
+      </TableCell>
+
+      {/* Open URL */}
+      <TableCell
+        className="px-2 py-3"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={(e) => onOpenOriginal(bookmark.url, e)}
+          className="opacity-0 group-hover:opacity-100 transition-opacity text-foreground-muted hover:text-accent"
+          title="Open in new tab"
+        >
+          <ExternalLink className="size-4" />
+          <span className="sr-only">Open URL in new tab</span>
+        </Button>
+      </TableCell>
+
+      {/* Actions */}
+      <TableCell
+        className="px-2 py-3"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              <MoreHorizontal className="size-4" />
+              <span className="sr-only">Open menu</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuItem
+              onClick={(e) =>
+                onOpenOriginal(bookmark.url, e as unknown as React.MouseEvent)
+              }
+            >
+              <ExternalLink className="size-4" />
+              Open original
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={(e) =>
+                onCopyUrl(bookmark.url, e as unknown as React.MouseEvent)
+              }
+            >
+              <Copy className="size-4" />
+              Copy URL
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={(e) =>
+                onEdit(bookmark.id, e as unknown as React.MouseEvent)
+              }
+            >
+              <Pencil className="size-4" />
+              Edit
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              variant="destructive"
+              onClick={(e) =>
+                onDelete(bookmark, e as unknown as React.MouseEvent)
+              }
+            >
+              <Trash2 className="size-4" />
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </TableCell>
+    </TableRow>
+  )
+}
+
+/**
+ * Static row for DragOverlay - doesn't use sortable hooks
+ */
+function BookmarkRowOverlay({ bookmark }: { bookmark: Bookmark }) {
+  return (
+    <table className="w-full">
+      <tbody>
+        <tr
+          className={cn(
+            'bg-[#1a1a1a] shadow-2xl border border-accent/50 rounded-md',
+            'cursor-grabbing'
+          )}
+        >
+          {/* Checkbox */}
+          <td className="pl-4 pr-2 py-3 w-[40px]">
+            <Checkbox checked={false} disabled />
+          </td>
+
+          {/* Drag handle */}
+          <td className="px-2 py-3 w-[36px]">
+            <div className="text-accent flex items-center justify-center">
+              <GripVertical className="size-4" />
+            </div>
+          </td>
+
+          {/* Thumbnail */}
+          <td className="pl-2 pr-4 py-3 w-[80px]">
+            <div className="relative size-12 flex-shrink-0 overflow-hidden rounded-none bg-background-emphasis">
+              {getThumbnailUrl(bookmark) ? (
+                <Image
+                  src={getThumbnailUrl(bookmark)!}
+                  alt=""
+                  fill
+                  className="object-cover"
+                  sizes="48px"
+                  unoptimized
+                />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center text-foreground-muted">
+                  <ImageIcon className="size-4" />
+                </div>
+              )}
+            </div>
+          </td>
+
+          {/* Title */}
+          <td className="py-3">
+            <div className="space-y-0.5 min-w-0">
+              <div className="font-mono font-medium text-foreground line-clamp-1 text-sm">
+                {getDisplayTitle(bookmark.title, bookmark.url)}
+              </div>
+              <div className="text-[11px] text-foreground-muted line-clamp-1 font-mono">
+                {formatDisplayUrl(bookmark.url)}
+              </div>
+            </div>
+          </td>
+
+          {/* Source */}
+          <td className="py-3 w-[100px]">
+            <SourceBadge source={bookmark.source} size="sm" />
+          </td>
+
+          {/* Category */}
+          <td className="py-3 w-[140px]">
+            <CategoryBadge category={bookmark.category} />
+          </td>
+
+          {/* Date */}
+          <td className="py-3 w-[110px] text-xs text-foreground-muted font-mono tabular-nums">
+            {formatTimeAgo(bookmark.created_at)}
+          </td>
+
+          {/* Spacer cells */}
+          <td className="w-[48px]" />
+          <td className="w-[48px]" />
+        </tr>
+      </tbody>
+    </table>
+  )
+}
+
 interface BookmarkTableProps {
   bookmarks: Bookmark[]
   onSelectBookmark?: (bookmark: Bookmark) => void
   onSelectionChange?: (selectedIds: Set<string>) => void
   isDeleteDialogOpen?: boolean
   onDeleteDialogOpenChange?: (open: boolean) => void
+  emptyComponent?: React.ReactNode
   className?: string
 }
 
@@ -138,6 +498,7 @@ export function BookmarkTable({
   onSelectionChange,
   isDeleteDialogOpen: controlledDeleteDialogOpen,
   onDeleteDialogOpenChange,
+  emptyComponent,
   className,
 }: BookmarkTableProps) {
   const router = useRouter()
@@ -145,22 +506,71 @@ export function BookmarkTable({
   const [currentPage, setCurrentPage] = React.useState(1)
   const [rowsPerPage, setRowsPerPage] = React.useState(10)
   const [internalDeleteDialogOpen, setInternalDeleteDialogOpen] = React.useState(false)
+  const [activeId, setActiveId] = React.useState<string | null>(null)
+  const [orderedBookmarkIds, setOrderedBookmarkIds] = React.useState<string[]>([])
 
   // Use controlled or internal state for delete dialog
   const isDeleteDialogOpen = controlledDeleteDialogOpen ?? internalDeleteDialogOpen
   const setIsDeleteDialogOpen = onDeleteDialogOpenChange ?? setInternalDeleteDialogOpen
   const [isDeleting, setIsDeleting] = React.useState(false)
   const [deleteProgress, setDeleteProgress] = React.useState({ current: 0, total: 0 })
-  const [sortOrder, setSortOrder] = React.useState<'asc' | 'desc'>('desc')
+  const [sortOrder, setSortOrder] = React.useState<'asc' | 'desc' | 'custom'>('desc')
 
-  // Sort bookmarks by date
+  // Initialize ordered bookmark IDs from localStorage or bookmarks
+  React.useEffect(() => {
+    const savedOrder = loadBookmarkOrder()
+    const currentIds = bookmarks.map((b) => b.id)
+
+    if (savedOrder.length > 0) {
+      // Filter saved order to only include IDs that still exist
+      const validSavedOrder = savedOrder.filter((id) => currentIds.includes(id))
+      // Add any new IDs that aren't in the saved order
+      const newIds = currentIds.filter((id) => !savedOrder.includes(id))
+      const mergedOrder = [...validSavedOrder, ...newIds]
+
+      if (mergedOrder.length > 0) {
+        setOrderedBookmarkIds(mergedOrder)
+        // If we have a saved order, switch to custom sort
+        if (validSavedOrder.length > 0) {
+          setSortOrder('custom')
+        }
+      }
+    } else {
+      setOrderedBookmarkIds(currentIds)
+    }
+  }, [bookmarks])
+
+  // Configure sensors for drag and drop
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8, // 8px movement before drag starts
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  )
+
+  // Sort bookmarks based on current sort order
   const sortedBookmarks = React.useMemo(() => {
+    if (sortOrder === 'custom' && orderedBookmarkIds.length > 0) {
+      // Sort by custom order
+      const orderMap = new Map(orderedBookmarkIds.map((id, index) => [id, index]))
+      return [...bookmarks].sort((a, b) => {
+        const indexA = orderMap.get(a.id) ?? Infinity
+        const indexB = orderMap.get(b.id) ?? Infinity
+        return indexA - indexB
+      })
+    }
+
+    // Sort by date
     return [...bookmarks].sort((a, b) => {
       const dateA = new Date(a.created_at).getTime()
       const dateB = new Date(b.created_at).getTime()
       return sortOrder === 'desc' ? dateB - dateA : dateA - dateB
     })
-  }, [bookmarks, sortOrder])
+  }, [bookmarks, sortOrder, orderedBookmarkIds])
 
   // Pagination calculations
   const totalRows = sortedBookmarks.length
@@ -168,6 +578,12 @@ export function BookmarkTable({
   const startIndex = (currentPage - 1) * rowsPerPage
   const endIndex = Math.min(startIndex + rowsPerPage, totalRows)
   const paginatedBookmarks = sortedBookmarks.slice(startIndex, endIndex)
+
+  // Get sortable IDs for current page
+  const sortableIds = React.useMemo(
+    () => paginatedBookmarks.map((b) => b.id),
+    [paginatedBookmarks]
+  )
 
   // Reset to first page when bookmarks change significantly
   React.useEffect(() => {
@@ -312,6 +728,57 @@ export function BookmarkTable({
     router.refresh()
   }, [selectedIds, router, setIsDeleteDialogOpen])
 
+  // Drag and drop handlers
+  const handleDragStart = React.useCallback((event: DragStartEvent) => {
+    setActiveId(event.active.id as string)
+  }, [])
+
+  const handleDragEnd = React.useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event
+
+      setActiveId(null)
+
+      if (over && active.id !== over.id) {
+        // Find the indices in the full sorted list
+        const oldIndex = sortedBookmarks.findIndex((b) => b.id === active.id)
+        const overIndex = sortedBookmarks.findIndex((b) => b.id === over.id)
+
+        if (oldIndex !== -1 && overIndex !== -1) {
+          // Create new order from full sorted bookmarks
+          const newSortedIds = sortedBookmarks.map((b) => b.id)
+          const reorderedIds = arrayMove(newSortedIds, oldIndex, overIndex)
+
+          setOrderedBookmarkIds(reorderedIds)
+          saveBookmarkOrder(reorderedIds)
+
+          // Switch to custom sort order
+          if (sortOrder !== 'custom') {
+            setSortOrder('custom')
+          }
+
+          toast.success('Bookmark order updated', {
+            duration: 2000,
+          })
+        }
+      }
+    },
+    [sortedBookmarks, sortOrder]
+  )
+
+  const handleDragCancel = React.useCallback(() => {
+    setActiveId(null)
+  }, [])
+
+  // Cycle through sort orders
+  const handleSortClick = React.useCallback(() => {
+    setSortOrder((prev) => {
+      if (prev === 'desc') return 'asc'
+      if (prev === 'asc') return 'custom'
+      return 'desc'
+    })
+  }, [])
+
   const isAllSelected =
     paginatedBookmarks.length > 0 &&
     paginatedBookmarks.every((b) => selectedIds.has(b.id))
@@ -319,10 +786,13 @@ export function BookmarkTable({
     paginatedBookmarks.some((b) => selectedIds.has(b.id)) && !isAllSelected
 
   if (bookmarks.length === 0) {
-    return <BookmarkEmpty className={className} />
+    return emptyComponent ?? <BookmarkEmpty className={className} />
   }
 
   const selectedCount = selectedIds.size
+  const activeBookmark = activeId
+    ? paginatedBookmarks.find((b) => b.id === activeId)
+    : null
 
   return (
     <div className={cn('space-y-4', className)}>
@@ -384,264 +854,118 @@ export function BookmarkTable({
         </DialogContent>
       </Dialog>
 
-      {/* Table */}
-      <div className="rounded-none overflow-hidden border border-border">
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-transparent hover:bg-transparent border-b border-border">
-              {/* Checkbox */}
-              <TableHead className="w-[40px] px-4">
-                <Checkbox
-                  checked={isAllSelected}
-                  ref={(el) => {
-                    if (el) {
-                      ;(el as HTMLButtonElement & { indeterminate: boolean }).indeterminate =
-                        isSomeSelected
-                    }
-                  }}
-                  onCheckedChange={(checked) =>
-                    handleSelectAll(checked as boolean)
-                  }
-                  aria-label="Select all"
-                />
-              </TableHead>
-              {/* Drag handle */}
-              <TableHead className="w-[32px] px-0">
-                <span className="sr-only">Drag handle</span>
-              </TableHead>
-              {/* Thumbnail */}
-              <TableHead className="w-[72px] px-2">
-                <span className="sr-only">Thumbnail</span>
-              </TableHead>
-              {/* Title & Description */}
-              <TableHead className="text-foreground-muted font-mono font-normal text-[10px] uppercase tracking-[0.15em]">
-                Title
-              </TableHead>
-              {/* Source */}
-              <TableHead className="w-[100px] text-foreground-muted font-mono font-normal text-[10px] uppercase tracking-[0.15em]">
-                Source
-              </TableHead>
-              {/* Category */}
-              <TableHead className="w-[140px] text-foreground-muted font-mono font-normal text-[10px] uppercase tracking-[0.15em]">
-                Category
-              </TableHead>
-              {/* Date */}
-              <TableHead className="w-[110px] text-foreground-muted font-mono font-normal text-[10px] uppercase tracking-[0.15em]">
-                <button
-                  type="button"
-                  onClick={() => setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
-                  className="flex items-center gap-1 hover:text-foreground transition-colors"
-                >
-                  Date
-                  {sortOrder === 'desc' ? (
-                    <ArrowDown className="size-3" />
-                  ) : (
-                    <ArrowUp className="size-3" />
-                  )}
-                </button>
-              </TableHead>
-              {/* Open URL */}
-              <TableHead className="w-[48px] px-2">
-                <span className="sr-only">Open URL</span>
-              </TableHead>
-              {/* Actions */}
-              <TableHead className="w-[48px] px-2">
-                <span className="sr-only">Actions</span>
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {paginatedBookmarks.map((bookmark) => {
-              const isSelected = selectedIds.has(bookmark.id)
-              return (
-                <TableRow
-                  key={bookmark.id}
-                  data-state={isSelected ? 'selected' : undefined}
-                  className={cn(
-                    'group cursor-pointer transition-all',
-                    'border-l-2 border-l-[#080808] hover:border-l-accent hover:bg-[#121212]',
-                    'border-b border-border last:border-0',
-                    isSelected && 'bg-accent/5 border-l-accent'
-                  )}
-                  onClick={() => handleRowClick(bookmark)}
-                >
-                  {/* Checkbox */}
-                  <TableCell
-                    className="px-4 py-3"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <Checkbox
-                      checked={isSelected}
-                      onCheckedChange={(checked) =>
-                        handleSelectRow(bookmark.id, checked as boolean)
+      {/* Table with DnD Context */}
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onDragCancel={handleDragCancel}
+      >
+        <div className="rounded-none overflow-hidden border border-border">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-transparent hover:bg-transparent border-b border-border">
+                {/* Checkbox */}
+                <TableHead className="w-[40px] pl-4 pr-2">
+                  <Checkbox
+                    checked={isAllSelected}
+                    ref={(el) => {
+                      if (el) {
+                        ;(el as HTMLButtonElement & { indeterminate: boolean }).indeterminate =
+                          isSomeSelected
                       }
-                      aria-label={`Select ${bookmark.title}`}
-                    />
-                  </TableCell>
-
-                  {/* Drag handle */}
-                  <TableCell
-                    className="px-0 py-3"
-                    onClick={(e) => e.stopPropagation()}
+                    }}
+                    onCheckedChange={(checked) =>
+                      handleSelectAll(checked as boolean)
+                    }
+                    aria-label="Select all"
+                  />
+                </TableHead>
+                {/* Drag handle */}
+                <TableHead className="w-[36px] px-2">
+                  <span className="sr-only">Drag handle</span>
+                </TableHead>
+                {/* Thumbnail */}
+                <TableHead className="w-[80px] pl-2 pr-4">
+                  <span className="sr-only">Thumbnail</span>
+                </TableHead>
+                {/* Title & Description */}
+                <TableHead className="text-foreground-muted font-mono font-normal text-[10px] uppercase tracking-[0.15em]">
+                  Title
+                </TableHead>
+                {/* Source */}
+                <TableHead className="w-[100px] text-foreground-muted font-mono font-normal text-[10px] uppercase tracking-[0.15em]">
+                  Source
+                </TableHead>
+                {/* Category */}
+                <TableHead className="w-[140px] text-foreground-muted font-mono font-normal text-[10px] uppercase tracking-[0.15em]">
+                  Category
+                </TableHead>
+                {/* Date */}
+                <TableHead className="w-[110px] text-foreground-muted font-mono font-normal text-[10px] uppercase tracking-[0.15em]">
+                  <button
+                    type="button"
+                    onClick={handleSortClick}
+                    className="flex items-center gap-1 hover:text-foreground transition-colors"
+                    title={
+                      sortOrder === 'custom'
+                        ? 'Custom order (drag to reorder)'
+                        : sortOrder === 'desc'
+                        ? 'Newest first'
+                        : 'Oldest first'
+                    }
                   >
-                    <button
-                      type="button"
-                      className="cursor-grab opacity-0 group-hover:opacity-100 transition-opacity text-foreground-muted hover:text-foreground-secondary"
-                      aria-label="Drag to reorder"
-                    >
-                      <GripVertical className="size-4" />
-                    </button>
-                  </TableCell>
+                    Date
+                    {sortOrder === 'custom' ? (
+                      <GripVertical className="size-3" />
+                    ) : sortOrder === 'desc' ? (
+                      <ArrowDown className="size-3" />
+                    ) : (
+                      <ArrowUp className="size-3" />
+                    )}
+                  </button>
+                </TableHead>
+                {/* Open URL */}
+                <TableHead className="w-[48px] px-2">
+                  <span className="sr-only">Open URL</span>
+                </TableHead>
+                {/* Actions */}
+                <TableHead className="w-[48px] px-2">
+                  <span className="sr-only">Actions</span>
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <SortableContext
+                items={sortableIds}
+                strategy={verticalListSortingStrategy}
+              >
+                {paginatedBookmarks.map((bookmark) => (
+                  <SortableBookmarkRow
+                    key={bookmark.id}
+                    bookmark={bookmark}
+                    isSelected={selectedIds.has(bookmark.id)}
+                    onSelectRow={handleSelectRow}
+                    onRowClick={handleRowClick}
+                    onCopyUrl={handleCopyUrl}
+                    onOpenOriginal={handleOpenOriginal}
+                    onEdit={handleEdit}
+                    onDelete={handleDelete}
+                  />
+                ))}
+              </SortableContext>
+            </TableBody>
+          </Table>
+        </div>
 
-                  {/* Thumbnail */}
-                  <TableCell className="px-2 py-3">
-                    <div className="relative size-12 flex-shrink-0 overflow-hidden rounded-none bg-background-emphasis">
-                      {getThumbnailUrl(bookmark) ? (
-                        <Image
-                          src={getThumbnailUrl(bookmark)!}
-                          alt=""
-                          fill
-                          className="object-cover"
-                          sizes="48px"
-                          unoptimized
-                        />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center text-foreground-muted">
-                          <ImageIcon className="size-4" />
-                        </div>
-                      )}
-                    </div>
-                  </TableCell>
-
-                  {/* Title & URL with hover preview */}
-                  <TableCell className="py-3 min-w-0">
-                    <HoverCard openDelay={300} closeDelay={100}>
-                      <HoverCardTrigger asChild>
-                        <Link
-                          href={`/bookmark/${bookmark.id}`}
-                          className="block min-w-0"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <div className="space-y-0.5 min-w-0">
-                            <div className="font-mono font-medium text-foreground line-clamp-1 text-sm flex items-center gap-2">
-                              {getDisplayTitle(bookmark.title, bookmark.url)}
-                              {(bookmark.processing_status === 'pending' || bookmark.processing_status === 'processing') && (
-                                <span className="inline-flex items-center gap-1 text-[10px] text-accent shrink-0">
-                                  <Loader2 className="size-3 animate-spin" />
-                                  <span className="hidden sm:inline">Processing...</span>
-                                </span>
-                              )}
-                            </div>
-                            <div className="text-[11px] text-foreground-muted line-clamp-1 font-mono">
-                              {formatDisplayUrl(bookmark.url)}
-                            </div>
-                          </div>
-                        </Link>
-                      </HoverCardTrigger>
-                      <HoverCardContent
-                        side="right"
-                        align="start"
-                        sideOffset={8}
-                        className="w-72"
-                      >
-                        <BookmarkPreviewCard bookmark={bookmark} />
-                      </HoverCardContent>
-                    </HoverCard>
-                  </TableCell>
-
-                  {/* Source */}
-                  <TableCell className="py-3">
-                    <SourceBadge source={bookmark.source} size="sm" />
-                  </TableCell>
-
-                  {/* Category */}
-                  <TableCell className="py-3">
-                    <CategoryBadge category={bookmark.category} />
-                  </TableCell>
-
-                  {/* Date */}
-                  <TableCell className="py-3 text-xs text-foreground-muted font-mono tabular-nums">
-                    {formatTimeAgo(bookmark.created_at)}
-                  </TableCell>
-
-                  {/* Open URL */}
-                  <TableCell
-                    className="px-2 py-3"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={(e) => handleOpenOriginal(bookmark.url, e)}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity text-foreground-muted hover:text-accent"
-                      title="Open in new tab"
-                    >
-                      <ExternalLink className="size-4" />
-                      <span className="sr-only">Open URL in new tab</span>
-                    </Button>
-                  </TableCell>
-
-                  {/* Actions */}
-                  <TableCell
-                    className="px-2 py-3"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          className="opacity-0 group-hover:opacity-100 transition-opacity"
-                        >
-                          <MoreHorizontal className="size-4" />
-                          <span className="sr-only">Open menu</span>
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-48">
-                        <DropdownMenuItem
-                          onClick={(e) =>
-                            handleOpenOriginal(bookmark.url, e as unknown as React.MouseEvent)
-                          }
-                        >
-                          <ExternalLink className="size-4" />
-                          Open original
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={(e) =>
-                            handleCopyUrl(bookmark.url, e as unknown as React.MouseEvent)
-                          }
-                        >
-                          <Copy className="size-4" />
-                          Copy URL
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          onClick={(e) =>
-                            handleEdit(bookmark.id, e as unknown as React.MouseEvent)
-                          }
-                        >
-                          <Pencil className="size-4" />
-                          Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          variant="destructive"
-                          onClick={(e) =>
-                            handleDelete(bookmark, e as unknown as React.MouseEvent)
-                          }
-                        >
-                          <Trash2 className="size-4" />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              )
-            })}
-          </TableBody>
-        </Table>
-      </div>
+        {/* Drag Overlay */}
+        <DragOverlay>
+          {activeBookmark ? (
+            <BookmarkRowOverlay bookmark={activeBookmark} />
+          ) : null}
+        </DragOverlay>
+      </DndContext>
 
       {/* Pagination */}
       <div className="flex items-center justify-between px-2 py-3">

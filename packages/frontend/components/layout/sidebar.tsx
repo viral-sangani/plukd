@@ -267,18 +267,6 @@ interface SidebarProps {
   className?: string
 }
 
-const mockUser: User = {
-  id: 'mock-user-1',
-  email: 'user@plukd.app',
-  name: 'Demo User',
-  avatar_url: null,
-  telegram_chat_id: null,
-  telegram_username: null,
-  telegram_linked_at: null,
-  created_at: new Date().toISOString(),
-  updated_at: new Date().toISOString(),
-}
-
 export function Sidebar({ className }: SidebarProps) {
   const pathname = usePathname()
   const [open, setOpen] = useState(false)
@@ -293,7 +281,9 @@ export function Sidebar({ className }: SidebarProps) {
         const userData = await api.get<User>("/api/user")
         setUser(userData)
       } catch {
-        setUser(mockUser)
+        // User fetch failed - user will remain null and show loading skeleton
+        // The middleware handles redirecting unauthenticated users to /login
+        setUser(null)
       } finally {
         setIsLoading(false)
       }
