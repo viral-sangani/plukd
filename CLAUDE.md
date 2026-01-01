@@ -190,3 +190,35 @@ NEXT_PUBLIC_API_URL=http://localhost:3000
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 ```
+
+## Deployment
+
+### Backend (Hetzner VPS)
+
+**Stack:** PM2 + Redis + Caddy
+
+```bash
+# Start with PM2
+cd packages/backend
+pm2 start ecosystem.config.cjs
+
+# Manage
+pm2 status           # Check status
+pm2 logs plukd-api   # View logs
+pm2 reload plukd-api # Zero-downtime reload
+pm2 stop plukd-api   # Stop
+```
+
+**Production URLs:**
+- API: https://api.plukd.xyz
+- Frontend: https://plukd.xyz
+
+**Server Requirements:**
+- Bun runtime
+- Redis (localhost:6379)
+- Caddy reverse proxy (auto HTTPS)
+- PM2 process manager
+
+### CI/CD
+
+GitHub Actions deploys to Hetzner on push to `main` branch.

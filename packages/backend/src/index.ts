@@ -30,7 +30,9 @@ app.route('/api', routes)
 
 console.log(`[server] Starting on port ${env.PORT}`)
 
-export default {
+const server = Bun.serve({
   port: env.PORT,
   fetch: app.fetch,
-}
+})
+
+console.log(`[server] Listening on ${server.url}`)

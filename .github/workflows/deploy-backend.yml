@@ -1,0 +1,66 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'packages/backend/**'
+      - 'packages/shared/**'
+      - '.github/workflows/deploy-backend.yml'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+      - name: Deploy to server
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          ssh -i ~/.ssh/deploy_key plukd@"$DEPLOY_HOST" << 'ENDSSH'
+            set -e
+
+            cd ~/apps/plukd
+
+            # Pull latest code
+            git pull origin main
+
+            # Install dependencies
+            pnpm install --frozen-lockfile
+
+            # Build shared package first
+            pnpm --filter @plukd/shared build
+
+            # Build backend
+            cd packages/backend
+            pnpm build
+
+            # Reload PM2 (zero-downtime)
+            pm2 reload plukd-api || pm2 start ecosystem.config.cjs
+
+            # Save PM2 state
+            pm2 save
+
+            echo "Deployment complete!"
+          ENDSSH
+
+      - name: Verify deployment
+        env:
+          API_URL: https://api.plukd.xyz/
+        run: |
+          sleep 5
+          curl -f "$API_URL" || echo "Warning: Health check failed, but deployment may still be in progress"
