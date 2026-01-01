@@ -22,10 +22,10 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           height={64}
           className="rounded-xl mb-4"
         />
-        <h1 className="font-cal text-4xl font-semibold tracking-tight text-[#fafaf9]">
+        <h1 className="font-mono text-4xl font-semibold tracking-tight text-[#fafaf9]">
           Plukd
         </h1>
-        <p className="mt-2 text-[#78716c]">
+        <p className="mt-2 font-mono text-[#78716c]">
           Your personal knowledge capture system
         </p>
       </div>
@@ -34,16 +34,16 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
       <AuthCard>
         <div className="flex flex-col gap-6">
           <div className="text-center">
-            <h2 className="text-xl font-semibold text-[#fafaf9]">
+            <h2 className="text-xl font-mono font-semibold text-[#fafaf9]">
               Welcome back
             </h2>
-            <p className="mt-1 text-sm text-[#a8a29e]">
+            <p className="mt-1 text-sm font-mono text-[#a8a29e]">
               Sign in to your account to continue
             </p>
           </div>
 
           {error && (
-            <div className="rounded-md bg-red-500/10 border border-red-500/20 p-3 text-center text-sm text-red-500">
+            <div className="rounded-md bg-red-500/10 border border-red-500/20 p-3 text-center text-sm font-mono text-red-500">
               {error === "auth_callback_error"
                 ? "Authentication failed. Please try again."
                 : "An error occurred. Please try again."}
@@ -57,7 +57,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
               <span className="w-full border-t border-[#44403c]" />
             </div>
             <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-[#1a1a1a] px-2 text-[#78716c]">
+              <span className="bg-[#1a1a1a] px-2 font-mono text-[#78716c]">
                 or continue with email
               </span>
             </div>
@@ -65,7 +65,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
 
           <EmailLoginForm />
 
-          <p className="text-center text-xs text-[#78716c]">
+          <p className="text-center text-xs font-mono text-[#78716c]">
             By signing in, you agree to our{" "}
             <a href="/terms" className="underline hover:text-[#a8a29e]">
               Terms

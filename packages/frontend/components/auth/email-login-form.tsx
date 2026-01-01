@@ -57,8 +57,8 @@ export function EmailLoginForm() {
           <Check className="h-6 w-6 text-[#22c55e]" />
         </div>
         <div className="text-center">
-          <p className="font-medium text-[#fafaf9]">Check your email</p>
-          <p className="mt-1 text-sm text-[#a8a29e]">
+          <p className="font-mono font-medium text-[#fafaf9]">Check your email</p>
+          <p className="mt-1 text-sm font-mono text-[#a8a29e]">
             We sent a magic link to <span className="text-[#fafaf9]">{email}</span>
           </p>
         </div>
@@ -68,7 +68,7 @@ export function EmailLoginForm() {
             setFormState("idle");
             setEmail("");
           }}
-          className="text-sm text-[#78716c] hover:text-[#a8a29e] transition-colors"
+          className="text-sm font-mono text-[#78716c] hover:text-[#a8a29e] transition-colors"
         >
           Use a different email
         </button>
@@ -79,7 +79,7 @@ export function EmailLoginForm() {
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
       <div className="flex flex-col gap-2">
-        <label htmlFor="email" className="text-sm font-medium text-[#a8a29e]">
+        <label htmlFor="email" className="text-sm font-mono font-medium text-[#a8a29e]">
           Email address
         </label>
         <Input
@@ -95,20 +95,20 @@ export function EmailLoginForm() {
             }
           }}
           disabled={formState === "loading"}
-          className="h-12 bg-[#0c0a09] border-[#44403c] text-[#fafaf9] placeholder:text-[#57534e] focus-visible:border-[#fafaf9] focus-visible:ring-[#fafaf9]/20"
+          className="h-12 font-mono bg-[#0c0a09] border-[#44403c] text-[#fafaf9] placeholder:text-[#57534e] focus-visible:border-[#fafaf9] focus-visible:ring-[#fafaf9]/20"
           autoComplete="email"
           autoFocus
         />
       </div>
 
       {formState === "error" && errorMessage && (
-        <p className="text-sm text-red-500">{errorMessage}</p>
+        <p className="text-sm font-mono text-red-500">{errorMessage}</p>
       )}
 
       <Button
         type="submit"
         size="lg"
-        className="w-full bg-[#fafaf9] text-[#0c0a09] hover:bg-[#e7e5e4] border-0 font-medium h-12"
+        className="w-full font-mono bg-[#fafaf9] text-[#0c0a09] hover:bg-[#e7e5e4] border-0 font-medium h-12"
         disabled={formState === "loading"}
       >
         {formState === "loading" ? (

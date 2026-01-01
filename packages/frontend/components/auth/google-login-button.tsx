@@ -38,7 +38,7 @@ export function GoogleLoginButton() {
       size="lg"
       onClick={handleGoogleSignIn}
       disabled={isLoading}
-      className="w-full h-12 bg-transparent border-[#44403c] text-[#fafaf9] hover:bg-[#1c1917] hover:text-[#fafaf9] font-medium"
+      className="w-full h-12 font-mono bg-transparent border-[#44403c] text-[#fafaf9] hover:bg-[#1c1917] hover:text-[#fafaf9] font-medium"
     >
       {isLoading ? (
         <Loader2 className="h-5 w-5 animate-spin" />
