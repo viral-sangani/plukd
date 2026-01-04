@@ -11,8 +11,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@plukd/shared": "workspace:*",
     "@ai-sdk/google": "^3.0.1",
+    "@plukd/shared": "workspace:*",
     "@supabase/supabase-js": "^2.89.0",
     "ai": "^6.0.3",
     "bullmq": "^5.34.0",
@@ -20,6 +20,7 @@
     "hono": "^4.7.0",
     "ioredis": "^5.4.1",
     "jose": "^5.2.0",
+    "node-html-parser": "^7.0.1",
     "zod": "^4.2.1"
   },
   "devDependencies": {

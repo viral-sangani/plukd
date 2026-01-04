@@ -1,16 +1,18 @@
 'use client'
 
-import { useState, useCallback, Suspense } from 'react'
+import { useState, useCallback, Suspense, useEffect, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { Plus, Loader2, AlertCircle, RefreshCw, Trash2, SearchX } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { BookmarkTable } from '@/components/bookmarks/bookmark-table'
 import { BookmarkFilters } from '@/components/bookmarks/bookmark-filters'
 import { AddBookmarkDialog } from '@/components/bookmarks/add-bookmark-dialog'
-import { useBookmarks } from '@/lib/hooks'
+import { useBookmarks, usePrefetchAdjacentPages } from '@/lib/hooks'
 import type { Bookmark, Category, ContentSource, ProcessingStatus } from '@plukd/shared'
 
-const VALID_SOURCES: ContentSource[] = ['twitter', 'reddit', 'linkedin', 'youtube', 'web']
+const DEFAULT_PAGE_SIZE = 25
+
+const VALID_SOURCES: ContentSource[] = ['twitter', 'reddit', 'linkedin', 'youtube', 'instagram', 'web']
 
 function isValidSource(value: string | null): value is ContentSource {
   return value !== null && VALID_SOURCES.includes(value as ContentSource)
@@ -63,13 +65,51 @@ function DashboardPageContent() {
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null)
   const [selectedStatus, setSelectedStatus] = useState<ProcessingStatus | null>(null)
 
-  // Fetch bookmarks from API with search query and filters
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1)
+  const [rowsPerPage, setRowsPerPage] = useState(DEFAULT_PAGE_SIZE)
+
+  // Track previous search query to reset page when it changes
+  const prevSearchQuery = useRef(searchQuery)
+  useEffect(() => {
+    if (prevSearchQuery.current !== searchQuery) {
+      setCurrentPage(1)
+      prevSearchQuery.current = searchQuery
+    }
+  }, [searchQuery])
+
+  // Also reset page when URL source changes
+  const prevUrlSource = useRef(urlSource)
+  useEffect(() => {
+    if (prevUrlSource.current !== urlSource) {
+      setCurrentPage(1)
+      prevUrlSource.current = urlSource
+    }
+  }, [urlSource])
+
+  // Fetch bookmarks from API with search query, filters, and pagination
   const { data, isLoading, isFetching, isError, error, refetch } = useBookmarks({
+    page: currentPage,
+    limit: rowsPerPage,
     search: searchQuery || undefined,
     category: selectedCategory ?? undefined,
     source: urlSource ?? undefined,
     status: selectedStatus ?? undefined,
   })
+
+  // Prefetch adjacent pages for smooth navigation
+  const totalPages = data?.pagination?.totalPages ?? 0
+  usePrefetchAdjacentPages(
+    {
+      page: currentPage,
+      limit: rowsPerPage,
+      search: searchQuery || undefined,
+      category: selectedCategory ?? undefined,
+      source: urlSource ?? undefined,
+      status: selectedStatus ?? undefined,
+    },
+    totalPages
+  )
 
   // Selection state for bulk actions
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -83,6 +123,7 @@ function DashboardPageContent() {
   const handleClearAllFilters = useCallback(() => {
     setSelectedCategory(null)
     setSelectedStatus(null)
+    setCurrentPage(1) // Reset to first page when filters clear
     // Also clear source from URL if present
     const params = new URLSearchParams(searchParams.toString())
     if (params.has('source')) {
@@ -92,12 +133,14 @@ function DashboardPageContent() {
   }, [router, searchParams])
 
   const handleClearSearch = useCallback(() => {
+    setCurrentPage(1) // Reset to first page when search clears
     const params = new URLSearchParams(searchParams.toString())
     params.delete('search')
     router.push(`/?${params.toString()}`)
   }, [router, searchParams])
 
   const handleSourceChange = useCallback((source: ContentSource | null) => {
+    setCurrentPage(1) // Reset to first page when source filter changes
     const params = new URLSearchParams(searchParams.toString())
     if (source) {
       params.set('source', source)
@@ -106,6 +149,27 @@ function DashboardPageContent() {
     }
     router.push(`/?${params.toString()}`)
   }, [router, searchParams])
+
+  const handleCategoryChange = useCallback((category: Category | null) => {
+    setSelectedCategory(category)
+    setCurrentPage(1) // Reset to first page when category filter changes
+  }, [])
+
+  const handleStatusChange = useCallback((status: ProcessingStatus | null) => {
+    setSelectedStatus(status)
+    setCurrentPage(1) // Reset to first page when status filter changes
+  }, [])
+
+  const handlePageChange = useCallback((page: number) => {
+    setCurrentPage(page)
+    setSelectedIds(new Set()) // Clear selection when changing pages
+  }, [])
+
+  const handleRowsPerPageChange = useCallback((rows: number) => {
+    setRowsPerPage(rows)
+    setCurrentPage(1) // Reset to first page when page size changes
+    setSelectedIds(new Set()) // Clear selection when changing page size
+  }, [])
 
   // Use API data - don't fall back to mock data so we see real state
   const bookmarks: Bookmark[] = data?.bookmarks ?? []
@@ -176,9 +240,9 @@ function DashboardPageContent() {
             selectedCategory={selectedCategory}
             selectedSource={urlSource}
             selectedStatus={selectedStatus}
-            onCategoryChange={setSelectedCategory}
+            onCategoryChange={handleCategoryChange}
             onSourceChange={handleSourceChange}
-            onStatusChange={setSelectedStatus}
+            onStatusChange={handleStatusChange}
             onClearAll={handleClearAllFilters}
           />
         </div>
@@ -217,6 +281,12 @@ function DashboardPageContent() {
       {!isLoading && !isError && (
         <BookmarkTable
           bookmarks={bookmarks}
+          pagination={data?.pagination}
+          currentPage={currentPage}
+          rowsPerPage={rowsPerPage}
+          onPageChange={handlePageChange}
+          onRowsPerPageChange={handleRowsPerPageChange}
+          isPageChanging={isFetching && !isLoading}
           onSelectionChange={handleSelectionChange}
           isDeleteDialogOpen={isDeleteDialogOpen}
           onDeleteDialogOpenChange={setIsDeleteDialogOpen}

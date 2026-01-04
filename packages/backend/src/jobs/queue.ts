@@ -38,10 +38,19 @@ export async function enqueueBookmarkProcessing(
   url: string,
   userId: string
 ): Promise<void> {
+  const jobId = `bookmark-${bookmarkId}`
+
+  // Remove any existing job with this ID (handles reprocessing)
+  const existingJob = await bookmarkQueue.getJob(jobId)
+  if (existingJob) {
+    console.log(`[queue] Removing existing job ${jobId} (state: ${await existingJob.getState()})`)
+    await existingJob.remove()
+  }
+
   await bookmarkQueue.add(
-    'process',
+    'bookmark',
     { bookmarkId, url, userId },
-    { jobId: `bookmark-${bookmarkId}` }
+    { jobId }
   )
   console.log(`[queue] Enqueued bookmark ${bookmarkId}`)
 }

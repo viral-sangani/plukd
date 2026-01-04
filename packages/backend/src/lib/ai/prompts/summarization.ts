@@ -1,5 +1,5 @@
-import type { ExtractedContent, ContentSource } from '@plukd/shared'
-import type { ClassificationResult, ContentType } from './classification'
+import type { ExtractedContent, ContentSource, ExtractedResource, ContentType } from '@plukd/shared'
+import type { ClassificationResult } from './classification'
 
 /**
  * Result from Pass 2 summarization (Pro model)
@@ -7,6 +7,7 @@ import type { ClassificationResult, ContentType } from './classification'
 export interface SummarizationResult {
   blurb: string // 2-3 sentences, 50-200 chars
   summary: string // bullet points with **bold** emphasis, 300-1200 chars
+  extractedResources?: ExtractedResource[] // Only for list content type
 }
 
 /**
@@ -59,6 +60,18 @@ function getContentTypeInstructions(
 - Note implications or next steps
 - Capture community/market reaction if available`,
 
+    list: `CRITICAL: This is LIST content. Your PRIMARY job is EXTRACTION, not summarization.
+
+You MUST:
+- Extract EVERY item mentioned (all 10, 15, 25+ items - do NOT skip any)
+- For each item: name (required), description (1-2 sentences), category (book/tool/movie/app/etc.), URL if mentioned
+- Do NOT summarize the items - extract them ALL
+- Do NOT limit yourself to 5-10 items - get every single one mentioned
+
+The blurb should describe what the list is about.
+The summary should give a meta-overview of the collection.
+The extracted_resources field MUST contain all individual items as structured data.`,
+
     other: `Summarize this content comprehensively:
 - Identify and explain the main purpose
 - Cover key information and features
@@ -79,11 +92,43 @@ function getContentTypeInstructions(
     linkedin: `\n- Maintain professional tone
 - Note author's expertise/credentials if mentioned`,
 
+    instagram: `\n- Note the creator/account context if relevant
+- Focus on the visual content being described
+- Extract and list any recommendations (movies, books, products, etc.) by name
+- Include the creator's opinions or recommendations`,
+
     web: `\n- Note the publication/site context
 - Include any author credentials`,
   }
 
-  return baseInstructions[contentType] + (sourceModifiers[source] || '')
+  // Additional instructions for list-based content (applies to all sources)
+  const listExtractionInstructions = `
+
+IMPORTANT - List Extraction:
+If the content contains recommendations or lists (movies, books, products, tools, tips, etc.):
+- Extract and list ALL items mentioned by name
+- Include brief context for each item if provided (e.g., genre, why recommended)
+- Format as a numbered or bulleted list in the summary
+- This is critical for content like "Top 10 movies" or "Best tools for X"`
+
+  return baseInstructions[contentType] + (sourceModifiers[source] || '') + listExtractionInstructions
+}
+
+/**
+ * Check if content extraction effectively failed
+ * (content is empty, minimal, or just a placeholder)
+ */
+function isExtractionFailed(content: ExtractedContent): boolean {
+  const contentText = content.content?.trim() || ''
+
+  // Empty or very short content
+  if (contentText.length < 50) return true
+
+  // Generic placeholder patterns
+  if (contentText.startsWith('Content from ')) return true
+  if (contentText === content.url) return true
+
+  return false
 }
 
 /**
@@ -98,6 +143,18 @@ export function buildSummarizationPrompt(
   content: ExtractedContent,
   classification: ClassificationResult
 ): string {
+  // Check if extraction failed - return simple fallback prompt
+  if (isExtractionFailed(content)) {
+    return `Content extraction failed for this URL. Return a simple fallback response.
+
+URL: ${content.url}
+Source: ${content.source}
+Title: ${content.title}
+
+Respond in JSON only:
+{"blurb":"Could not extract content from this URL.","summary":"• **Content unavailable** - The page content could not be automatically extracted.\\n• **Visit directly** - Please click the link to view the original content."}`
+  }
+
   // Truncate content to 8000 chars for summarization
   const truncatedContent = content.content.slice(0, 8000)
 
@@ -172,8 +229,18 @@ Guidelines:
 - Keep each bullet scannable at a glance
 - For opinions/discussions, represent viewpoints fairly
 
+${classification.contentType === 'list' ? `
+3. EXTRACTED_RESOURCES (REQUIRED for list content):
+- Extract EVERY item mentioned as a structured array
+- Each item: {"name": "...", "description": "...", "category": "...", "url": "..."}
+- Categories: book, tool, app, movie, show, podcast, course, resource, other
+- Include URLs only if explicitly mentioned in content
+- Do NOT skip any items - extract ALL of them
+
 Respond in JSON only:
-{"blurb":"...","summary":"..."}`
+{"blurb":"...","summary":"...","extractedResources":[{"name":"...","description":"...","category":"...","url":"..."}]}` : `
+Respond in JSON only:
+{"blurb":"...","summary":"..."}`}`
 }
 
 /**

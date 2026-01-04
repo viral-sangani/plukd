@@ -1,5 +1,7 @@
 import { Worker, Job } from 'bullmq'
-import { redis } from '../config/redis'
+import { Redis } from 'ioredis'
+import { env } from '../config/env'
+import { waitForRedis } from '../config/redis'
 import { QUEUE_NAMES, BookmarkProcessingJob } from './queue'
 import { processBookmarkJob } from './processors/bookmark-processing'
 
@@ -10,14 +12,27 @@ let worker: Worker | null = null
  *
  * Creates a BullMQ worker that processes bookmark jobs from the queue.
  * The worker handles content extraction and AI processing for each bookmark.
+ * Waits for Redis connection before creating the worker.
  *
  * @returns The worker instance
  */
-export function startWorker(): Worker {
+export async function startWorker(): Promise<Worker> {
   if (worker) {
     console.warn('[worker] Already started')
     return worker
   }
+
+  // Wait for Redis to be connected before creating the worker
+  console.log('[worker] Waiting for Redis connection...')
+  await waitForRedis()
+  console.log('[worker] Redis connected, creating worker...')
+
+  // Create a dedicated Redis connection for the worker
+  // BullMQ workers need their own connection for blocking operations (BRPOPLPUSH)
+  const workerConnection = new Redis(env.REDIS_URL, {
+    maxRetriesPerRequest: null, // Required for BullMQ workers
+    enableReadyCheck: false,
+  })
 
   worker = new Worker<BookmarkProcessingJob>(
     QUEUE_NAMES.BOOKMARK_PROCESSING,
@@ -26,7 +41,7 @@ export function startWorker(): Worker {
       await processBookmarkJob(job)
     },
     {
-      connection: redis,
+      connection: workerConnection,
       concurrency: 5,
     }
   )
@@ -41,6 +56,18 @@ export function startWorker(): Worker {
 
   worker.on('error', (err) => {
     console.error('[worker] Worker error:', err.message)
+  })
+
+  worker.on('ready', () => {
+    console.log('[worker] Worker is ready and listening for jobs')
+  })
+
+  worker.on('active', (job) => {
+    console.log(`[worker] Job ${job.id} is now active`)
+  })
+
+  worker.on('stalled', (jobId) => {
+    console.log(`[worker] Job ${jobId} has stalled`)
   })
 
   console.log('[worker] Bookmark processing worker started')

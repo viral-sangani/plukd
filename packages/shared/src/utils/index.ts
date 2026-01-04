@@ -20,6 +20,9 @@ export function detectSource(url: string): ContentSource {
     if (hostname.includes('youtube.com') || hostname.includes('youtu.be')) {
       return 'youtube'
     }
+    if (hostname.includes('instagram.com') || hostname.includes('instagr.am')) {
+      return 'instagram'
+    }
     return 'web'
   } catch {
     return 'web'
@@ -153,4 +156,194 @@ export function debounce<T extends (...args: unknown[]) => unknown>(
       fn(...args)
     }, delay)
   }
+}
+
+/**
+ * Generate a human-readable fallback title from a URL.
+ *
+ * This is used when content extraction fails to provide a title.
+ * Instead of showing "Untitled", we attempt to generate something
+ * more meaningful from the URL itself.
+ *
+ * Examples:
+ * - https://youtube.com/watch?v=abc123 -> "YouTube Video"
+ * - https://x.com/elonmusk/status/123 -> "Post by @elonmusk"
+ * - https://reddit.com/r/programming/... -> "Reddit: r/programming"
+ * - https://example.com/blog/my-article -> "example.com: my-article"
+ *
+ * @param url - The URL to generate a title from
+ * @param source - The detected content source
+ * @returns A human-readable title
+ */
+export function generateFallbackTitle(url: string, source: ContentSource): string {
+  try {
+    const urlObj = new URL(url)
+    const hostname = urlObj.hostname.replace('www.', '')
+    const pathname = urlObj.pathname
+
+    switch (source) {
+      case 'youtube': {
+        const videoId = extractYouTubeVideoId(url)
+        if (videoId) {
+          return `YouTube Video (${videoId})`
+        }
+        return 'YouTube Video'
+      }
+
+      case 'twitter': {
+        // Extract username from path: /username/status/id
+        const pathParts = pathname.split('/').filter(Boolean)
+        if (pathParts.length >= 1 && pathParts[0]) {
+          const username = pathParts[0]
+          return `Post by @${username}`
+        }
+        return 'Twitter/X Post'
+      }
+
+      case 'reddit': {
+        // Extract subreddit from path: /r/subreddit/...
+        const match = pathname.match(/\/r\/([^/]+)/)
+        if (match && match[1]) {
+          const subreddit = match[1]
+          return `Reddit: r/${subreddit}`
+        }
+        return 'Reddit Post'
+      }
+
+      case 'linkedin': {
+        // Check if it's a post or article
+        if (pathname.includes('/posts/')) {
+          return 'LinkedIn Post'
+        }
+        if (pathname.includes('/pulse/')) {
+          return 'LinkedIn Article'
+        }
+        return 'LinkedIn Content'
+      }
+
+      case 'instagram': {
+        // Extract username from path: /username/ or /p/postid or /reel/reelid
+        const pathParts = pathname.split('/').filter(Boolean)
+        const isReel = pathname.includes('/reel/')
+        const isPost = pathname.includes('/p/')
+
+        // Try to find username
+        if (pathParts.length >= 1) {
+          const firstPart = pathParts[0]
+          // Skip if it's a content type path
+          if (firstPart && !['p', 'reel', 'stories', 'tv', 'explore'].includes(firstPart)) {
+            const contentType = isReel ? 'Reel' : isPost ? 'Post' : 'Content'
+            return `Instagram ${contentType} by @${firstPart}`
+          }
+        }
+
+        // Fallback based on content type
+        if (isReel) return 'Instagram Reel'
+        if (isPost) return 'Instagram Post'
+        return 'Instagram Content'
+      }
+
+      case 'web':
+      default: {
+        // Try to extract something meaningful from the path
+        const pathSegments = pathname.split('/').filter(Boolean)
+        if (pathSegments.length > 0) {
+          // Get the last meaningful segment
+          const lastSegment = pathSegments[pathSegments.length - 1]
+          if (lastSegment) {
+            // Clean up the segment: remove extension, convert dashes/underscores to spaces
+            const cleaned = lastSegment
+              .replace(/\.[^.]+$/, '') // Remove file extension
+              .replace(/[-_]/g, ' ') // Convert dashes and underscores to spaces
+              .replace(/\s+/g, ' ') // Normalize whitespace
+              .trim()
+
+            if (cleaned.length > 0 && cleaned.length <= 60) {
+              // Capitalize first letter of each word
+              const titleCase = cleaned
+                .split(' ')
+                .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+                .join(' ')
+              return `${hostname}: ${titleCase}`
+            }
+          }
+        }
+        // Fallback to just the hostname
+        return `Link from ${hostname}`
+      }
+    }
+  } catch {
+    // If URL parsing fails, return a generic title
+    return 'Saved Link'
+  }
+}
+
+/**
+ * Check if a title needs regeneration (is empty, generic, or matches the URL)
+ *
+ * @param title - The current title
+ * @param url - The bookmark URL
+ * @returns True if the title should be regenerated
+ */
+export function isTitleBad(title: string | null | undefined, url: string): boolean {
+  if (!title) return true
+  const trimmed = title.trim()
+  const lowerTrimmed = trimmed.toLowerCase()
+
+  // Check for empty or "Untitled"
+  if (trimmed === '' || lowerTrimmed === 'untitled') {
+    return true
+  }
+
+  // Check if title is just the URL
+  if (trimmed === url) {
+    return true
+  }
+
+  // Check for generic platform names that indicate failed extraction
+  const genericTitles = ['instagram', 'twitter', 'reddit', 'linkedin', 'youtube']
+  if (genericTitles.includes(lowerTrimmed)) {
+    return true
+  }
+
+  // Check for Instagram-specific generic patterns
+  // Only mark as bad if the title is JUST platform boilerplate without actual content
+  const instagramGenericPatterns = [
+    /follow on instagram$/i, // "... Follow on Instagram" (at end = no content)
+    /^instagram photo by/i, // "Instagram photo by ..." (starts with = no content)
+    /^instagram video by/i, // "Instagram video by ..."
+    /^instagram reel by/i, // "Instagram Reel by ..."
+    /^instagram post by/i, // "Instagram post by ..."
+    /on instagram$/i, // "Username on Instagram" (ends with = no content after)
+    /on instagram: ?$/i, // "Username on Instagram:" (empty after colon)
+    /on instagram: ?"?"?$/i, // "Username on Instagram: "" (empty quotes)
+  ]
+  if (instagramGenericPatterns.some((pattern) => pattern.test(trimmed))) {
+    return true
+  }
+
+  // Special case: "Username on Instagram: Caption" - this is GOOD if there's actual content after
+  // Only mark as bad if the content after colon is too short (< 10 chars) or missing
+  const onInstagramMatch = trimmed.match(/on instagram:\s*[""]?(.*)[""]?$/i)
+  if (onInstagramMatch) {
+    const captionPart = onInstagramMatch[1]?.replace(/[""]$/g, '').trim() || ''
+    if (captionPart.length < 10) {
+      return true // Too short to be meaningful
+    }
+    // Has meaningful content - this is a good title
+    return false
+  }
+
+  // Check if title is just a domain
+  try {
+    const urlObj = new URL(url)
+    const hostname = urlObj.hostname.replace('www.', '')
+    if (trimmed === hostname || trimmed === urlObj.hostname) {
+      return true
+    }
+  } catch {
+    // Ignore URL parsing errors
+  }
+
+  return false
 }

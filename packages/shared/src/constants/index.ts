@@ -1,4 +1,4 @@
-import type { Category, Tag, ContentSource } from '../types'
+import type { Category, Tag, ContentSource, ContentType } from '../types'
 
 export const CATEGORIES = [
   // Tech
@@ -189,6 +189,7 @@ export const SOURCE_COLORS: Record<ContentSource, string> = {
   reddit: 'bg-[#ff4500]',
   linkedin: 'bg-[#0077b5]',
   youtube: 'bg-[#ff0000]',
+  instagram: 'bg-[#E4405F]',
   web: 'bg-[#a1a1a1]',
 }
 
@@ -197,6 +198,7 @@ export const SOURCE_TEXT_COLORS: Record<ContentSource, string> = {
   reddit: 'text-[#ff4500]',
   linkedin: 'text-[#0077b5]',
   youtube: 'text-[#ff0000]',
+  instagram: 'text-[#E4405F]',
   web: 'text-[#a1a1a1]',
 }
 
@@ -205,6 +207,7 @@ export const SOURCE_LABELS: Record<ContentSource, string> = {
   reddit: 'Reddit',
   linkedin: 'LinkedIn',
   youtube: 'YouTube',
+  instagram: 'Instagram',
   web: 'Web',
 }
 
@@ -213,6 +216,7 @@ export const SOURCE_ICONS: Record<ContentSource, string> = {
   reddit: 'MessageCircle',
   linkedin: 'Linkedin',
   youtube: 'Youtube',
+  instagram: 'Instagram',
   web: 'Globe',
 }
 
@@ -228,4 +232,35 @@ export const PROCESSING_STATUS_COLORS: Record<string, string> = {
   processing: 'bg-blue-500/10 text-blue-500',
   completed: 'bg-green-500/10 text-green-500',
   failed: 'bg-red-500/10 text-red-500',
+}
+
+// Content types for AI classification
+export const CONTENT_TYPES = [
+  'thread',
+  'article',
+  'video',
+  'discussion',
+  'announcement',
+  'list',
+  'other',
+] as const satisfies readonly ContentType[]
+
+export const CONTENT_TYPE_LABELS: Record<ContentType, string> = {
+  thread: 'Thread',
+  article: 'Article',
+  video: 'Video',
+  discussion: 'Discussion',
+  announcement: 'Announcement',
+  list: 'List',
+  other: 'Other',
+}
+
+export const CONTENT_TYPE_DESCRIPTIONS: Record<ContentType, string> = {
+  thread: 'Connected posts forming a narrative (Twitter threads, Reddit chains)',
+  article: 'Long-form written content (blog posts, news, essays)',
+  video: 'Video content (YouTube, Instagram Reels)',
+  discussion: 'Comment-heavy content with multiple perspectives',
+  announcement: 'Official news, releases, product launches',
+  list: 'Curated collections of recommendations, resources, tools, books, movies',
+  other: 'Tools, resources, reference material',
 }

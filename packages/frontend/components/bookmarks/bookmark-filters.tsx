@@ -50,7 +50,7 @@ interface BookmarkFiltersProps {
   className?: string
 }
 
-const SOURCES: ContentSource[] = ['twitter', 'reddit', 'linkedin', 'youtube', 'web']
+const SOURCES: ContentSource[] = ['twitter', 'reddit', 'linkedin', 'youtube', 'instagram', 'web']
 const STATUSES: ProcessingStatus[] = ['pending', 'processing', 'completed', 'failed']
 
 function FilterDropdown<T extends string>({

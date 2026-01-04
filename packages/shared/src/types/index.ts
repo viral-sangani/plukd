@@ -1,4 +1,4 @@
-export type ContentSource = 'twitter' | 'reddit' | 'linkedin' | 'youtube' | 'web'
+export type ContentSource = 'twitter' | 'reddit' | 'linkedin' | 'youtube' | 'instagram' | 'web'
 
 export type Category =
   // Tech
@@ -69,6 +69,17 @@ export type Tag =
 
 export type ProcessingStatus = 'pending' | 'processing' | 'completed' | 'failed'
 
+// Content type for AI classification
+export type ContentType = 'thread' | 'article' | 'video' | 'discussion' | 'announcement' | 'list' | 'other'
+
+// Extracted resource from list-type content
+export interface ExtractedResource {
+  name: string
+  description?: string
+  url?: string
+  category?: string // e.g., "book", "tool", "movie", "app"
+}
+
 export interface Bookmark {
   id: string
   user_id: string
@@ -84,6 +95,8 @@ export interface Bookmark {
   tags: Tag[]
   blurb: string
   summary: string
+  content_type: ContentType | null
+  extracted_resources: ExtractedResource[] | null
   processing_status: ProcessingStatus
   processing_error: string | null
   raw_metadata: Record<string, unknown> | null
@@ -164,6 +177,14 @@ export interface LinkedInMetadata {
   impressions?: number
 }
 
+export interface InstagramMetadata {
+  likes?: number
+  comments?: number
+  shares?: number
+  postType?: 'post' | 'reel' | 'story'
+  caption?: string
+}
+
 export interface WebMetadata {
   readingTime?: number
   wordCount?: number
@@ -177,6 +198,7 @@ export interface RawMetadata {
   reddit?: RedditMetadata
   youtube?: YouTubeMetadata
   linkedin?: LinkedInMetadata
+  instagram?: InstagramMetadata
   web?: WebMetadata
   [key: string]: unknown
 }
@@ -197,6 +219,7 @@ export interface ExtractedContent {
   }
   replies?: string[]
   transcript?: string
+  transcriptLanguage?: string // Auto-detected language code from transcription
   rawMetadata?: RawMetadata
   // Open Graph metadata fields (extracted from web pages)
   ogTitle?: string
@@ -215,6 +238,8 @@ export interface ProcessingResult {
   tags: Tag[]
   blurb: string
   summary: string
+  contentType: ContentType
+  extractedResources?: ExtractedResource[]
 }
 
 // API response types
@@ -225,6 +250,7 @@ export interface BookmarkCounts {
     reddit: number
     youtube: number
     linkedin: number
+    instagram: number
     web: number
   }
 }

@@ -5,6 +5,7 @@ import { supabaseAdmin } from '../config/supabase'
 import { enqueueBookmarkProcessing } from '../jobs/queue'
 import {
   detectSource,
+  isTitleBad,
   type Category,
   type ContentSource,
   type Tag,
@@ -17,6 +18,7 @@ import {
   updateBookmarkSchema,
 } from '@plukd/shared'
 
+type BookmarkRow = Database['public']['Tables']['bookmarks']['Row']
 type BookmarkInsert = Database['public']['Tables']['bookmarks']['Insert']
 type BookmarkUpdate = Database['public']['Tables']['bookmarks']['Update']
 
@@ -25,10 +27,17 @@ export const bookmarksRoutes = new Hono()
 // All routes require authentication
 bookmarksRoutes.use('*', authMiddleware)
 
+// Default pagination limit
+const DEFAULT_PAGE_LIMIT = 25
+
 // Query params schema for list endpoint
 const listQuerySchema = z.object({
+  // Offset-based pagination
   page: z.coerce.number().int().positive().default(1),
-  limit: z.coerce.number().int().positive().max(100).default(20),
+  limit: z.coerce.number().int().positive().max(100).default(DEFAULT_PAGE_LIMIT),
+  // Cursor-based pagination (preferred for large datasets)
+  cursor: z.string().uuid().optional(), // bookmark ID to start after
+  // Filters
   category: categorySchema.optional(),
   source: contentSourceSchema.optional(),
   tags: z.string().optional(), // comma-separated
@@ -39,6 +48,7 @@ const listQuerySchema = z.object({
 })
 
 // GET / - List bookmarks with filtering, pagination, and search
+// Supports both offset-based (page/limit) and cursor-based pagination
 bookmarksRoutes.get('/', async (c) => {
   try {
     const user = c.get('user')
@@ -48,6 +58,7 @@ bookmarksRoutes.get('/', async (c) => {
     const params = listQuerySchema.parse({
       page: query.page,
       limit: query.limit,
+      cursor: query.cursor || undefined,
       category: query.category || undefined,
       source: query.source || undefined,
       tags: query.tags || undefined,
@@ -56,6 +67,9 @@ bookmarksRoutes.get('/', async (c) => {
       sortBy: query.sortBy || 'created_at',
       sortOrder: query.sortOrder || 'desc',
     })
+
+    // Determine if using cursor-based pagination
+    const useCursor = !!params.cursor
 
     // Parse tags from comma-separated string
     const parsedTags = params.tags
@@ -106,9 +120,40 @@ bookmarksRoutes.get('/', async (c) => {
       ascending: params.sortOrder === 'asc',
     })
 
-    // Apply pagination
-    const offset = (params.page - 1) * params.limit
-    dbQuery = dbQuery.range(offset, offset + params.limit - 1)
+    // For cursor-based pagination, we need to find items after the cursor
+    if (useCursor) {
+      // First, get the cursor bookmark to find its sort value
+      const { data: cursorBookmark, error: cursorError } = await supabaseAdmin
+        .from('bookmarks')
+        .select('id, created_at, title')
+        .eq('id', params.cursor as string)
+        .eq('user_id', user.id)
+        .single<{ id: string; created_at: string; title: string }>()
+
+      if (cursorError || !cursorBookmark) {
+        return c.json({ error: 'Invalid cursor: bookmark not found' }, 400)
+      }
+
+      // Apply cursor filter based on sort field and direction
+      const sortField = params.sortBy
+      const isAsc = params.sortOrder === 'asc'
+      const cursorValue = sortField === 'created_at' ? cursorBookmark.created_at : cursorBookmark.title
+
+      if (isAsc) {
+        // For ascending, get items greater than cursor
+        dbQuery = dbQuery.gt(sortField, cursorValue)
+      } else {
+        // For descending, get items less than cursor
+        dbQuery = dbQuery.lt(sortField, cursorValue)
+      }
+
+      // Fetch limit + 1 to check if there's a next page
+      dbQuery = dbQuery.limit(params.limit + 1)
+    } else {
+      // Offset-based pagination
+      const offset = (params.page - 1) * params.limit
+      dbQuery = dbQuery.range(offset, offset + params.limit - 1)
+    }
 
     const { data: bookmarks, error, count } = await dbQuery
 
@@ -117,18 +162,49 @@ bookmarksRoutes.get('/', async (c) => {
       return c.json({ error: 'Failed to fetch bookmarks' }, 500)
     }
 
+    // Type assertion for bookmarks - Supabase returns properly typed data but inference can be complex
+    const typedBookmarks = bookmarks as BookmarkRow[] | null
+
     const total = count || 0
     const totalPages = Math.ceil(total / params.limit)
 
-    return c.json({
-      bookmarks: bookmarks || [],
-      pagination: {
-        page: params.page,
-        limit: params.limit,
-        total,
-        totalPages,
-      },
-    })
+    if (useCursor) {
+      // Cursor-based pagination response
+      const hasNextPage = (typedBookmarks?.length || 0) > params.limit
+      const items = hasNextPage ? typedBookmarks?.slice(0, params.limit) : typedBookmarks
+      const nextCursor = hasNextPage && items && items.length > 0
+        ? items[items.length - 1].id
+        : null
+
+      return c.json({
+        bookmarks: items || [],
+        pagination: {
+          limit: params.limit,
+          total,
+          totalPages,
+          hasNextPage,
+          nextCursor,
+          // For cursor-based, we don't track previous page in the same way
+          // Client should maintain cursor history for back navigation
+        },
+      })
+    } else {
+      // Offset-based pagination response
+      const hasNextPage = params.page < totalPages
+      const hasPreviousPage = params.page > 1
+
+      return c.json({
+        bookmarks: typedBookmarks || [],
+        pagination: {
+          page: params.page,
+          limit: params.limit,
+          total,
+          totalPages,
+          hasNextPage,
+          hasPreviousPage,
+        },
+      })
+    }
   } catch (error) {
     if (error instanceof z.ZodError) {
       return c.json({ error: 'Invalid query parameters', details: error.issues }, 400)
@@ -212,33 +288,47 @@ bookmarksRoutes.get('/counts', async (c) => {
       return c.json({ error: 'Failed to fetch counts' }, 500)
     }
 
-    // Get counts by source using individual queries
-    const sources = ['twitter', 'reddit', 'youtube', 'linkedin', 'web'] as const
-    const bySource: Record<string, number> = {}
+    // Get counts by source using a single query with RPC or group by
+    // Since Supabase doesn't support GROUP BY directly, we use Promise.all for parallel queries
+    const sources = ['twitter', 'reddit', 'youtube', 'linkedin', 'instagram', 'web'] as const
 
-    for (const source of sources) {
-      const { count, error } = await supabaseAdmin
-        .from('bookmarks')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', user.id)
-        .eq('source', source)
+    const countPromises = sources.map(async (source) => {
+      try {
+        const { count, error } = await supabaseAdmin
+          .from('bookmarks')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .eq('source', source)
 
-      if (error) {
-        console.error(`[bookmarks] Error fetching ${source} count:`, error)
-        bySource[source] = 0
-      } else {
-        bySource[source] = count || 0
+        // Handle case where error is truthy but has no meaningful message
+        if (error && error.message) {
+          console.error(`[bookmarks] Error fetching ${source} count:`, error.message)
+          return { source, count: 0 }
+        }
+
+        return { source, count: count ?? 0 }
+      } catch (err) {
+        // Catch any unexpected errors
+        console.error(`[bookmarks] Exception fetching ${source} count:`, err)
+        return { source, count: 0 }
       }
+    })
+
+    const results = await Promise.all(countPromises)
+    const bySource: Record<string, number> = {}
+    for (const result of results) {
+      bySource[result.source] = result.count
     }
 
     return c.json({
       total: total || 0,
       bySource: {
-        twitter: bySource.twitter,
-        reddit: bySource.reddit,
-        youtube: bySource.youtube,
-        linkedin: bySource.linkedin,
-        web: bySource.web,
+        twitter: bySource.twitter ?? 0,
+        reddit: bySource.reddit ?? 0,
+        youtube: bySource.youtube ?? 0,
+        linkedin: bySource.linkedin ?? 0,
+        instagram: bySource.instagram ?? 0,
+        web: bySource.web ?? 0,
       },
     })
   } catch (error) {
@@ -253,6 +343,8 @@ const processBookmarkSchema = z.object({
 })
 
 // POST /process - Manual reprocessing of a bookmark
+// When reprocessing, if the title is bad ("Untitled", matches URL, etc.),
+// we clear it so the processor will extract a fresh title.
 bookmarksRoutes.post('/process', async (c) => {
   try {
     const user = c.get('user')
@@ -262,12 +354,13 @@ bookmarksRoutes.post('/process', async (c) => {
     const { bookmarkId } = processBookmarkSchema.parse(body)
 
     // Verify the bookmark exists and belongs to the user
+    // Include title so we can check if it needs to be cleared
     const { data: bookmark, error: fetchError } = await supabaseAdmin
       .from('bookmarks')
-      .select('id, url')
+      .select('id, url, title')
       .eq('id', bookmarkId)
       .eq('user_id', user.id)
-      .single<{ id: string; url: string }>()
+      .single<{ id: string; url: string; title: string | null }>()
 
     if (fetchError) {
       if (fetchError.code === 'PGRST116') {
@@ -277,11 +370,21 @@ bookmarksRoutes.post('/process', async (c) => {
       return c.json({ error: 'Failed to fetch bookmark' }, 500)
     }
 
-    // Reset processing status to pending before reprocessing
+    // Build update data - reset processing status
     const updateData: BookmarkUpdate = {
       processing_status: 'pending',
       processing_error: null,
     }
+
+    // If the current title is bad (Untitled, matches URL, etc.), clear it
+    // so the processor will attempt to extract a fresh title
+    if (isTitleBad(bookmark.title, bookmark.url)) {
+      console.log(
+        `[bookmarks] Clearing bad title "${bookmark.title}" for reprocessing bookmark ${bookmarkId}`
+      )
+      updateData.title = bookmark.url // Reset to URL, processor will update it
+    }
+
     const { error: updateError } = await supabaseAdmin
       .from('bookmarks')
       .update(updateData as never)
@@ -309,6 +412,9 @@ bookmarksRoutes.post('/process', async (c) => {
   }
 })
 
+// Processing timeout in milliseconds (5 minutes)
+const PROCESSING_TIMEOUT_MS = 5 * 60 * 1000
+
 // GET /:id - Get a single bookmark
 bookmarksRoutes.get('/:id', async (c) => {
   try {
@@ -326,7 +432,7 @@ bookmarksRoutes.get('/:id', async (c) => {
       .select('*')
       .eq('id', id)
       .eq('user_id', user.id)
-      .single()
+      .single<BookmarkRow>()
 
     if (error) {
       if (error.code === 'PGRST116') {
@@ -334,6 +440,41 @@ bookmarksRoutes.get('/:id', async (c) => {
       }
       console.error('[bookmarks] Error fetching bookmark:', error)
       return c.json({ error: 'Failed to fetch bookmark' }, 500)
+    }
+
+    // Check for stale processing - auto-fail bookmarks stuck in pending/processing for > 5 minutes
+    const processingStatus = bookmark.processing_status as ProcessingStatus
+    if (processingStatus === 'pending' || processingStatus === 'processing') {
+      const updatedAt = new Date(bookmark.updated_at)
+      const now = new Date()
+      const timeSinceUpdate = now.getTime() - updatedAt.getTime()
+
+      if (timeSinceUpdate > PROCESSING_TIMEOUT_MS) {
+        console.log(`[bookmarks] Bookmark ${id} stuck in ${processingStatus} for ${Math.round(timeSinceUpdate / 1000)}s, marking as failed`)
+
+        // Update the bookmark status to failed
+        const updateData: BookmarkUpdate = {
+          processing_status: 'failed',
+          processing_error: 'Processing timed out. Please try regenerating the summary.',
+          updated_at: new Date().toISOString(),
+        }
+
+        const { data: updatedBookmark, error: updateError } = await supabaseAdmin
+          .from('bookmarks')
+          .update(updateData as never)
+          .eq('id', id)
+          .eq('user_id', user.id)
+          .select()
+          .single<BookmarkRow>()
+
+        if (updateError) {
+          console.error('[bookmarks] Error updating stale bookmark:', updateError)
+          // Return original bookmark if update fails
+          return c.json(bookmark)
+        }
+
+        return c.json(updatedBookmark)
+      }
     }
 
     return c.json(bookmark)

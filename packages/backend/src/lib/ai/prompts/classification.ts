@@ -1,16 +1,8 @@
-import type { ExtractedContent, ContentSource } from '@plukd/shared'
-import { CATEGORIES, TAGS } from '@plukd/shared'
+import type { ExtractedContent, ContentSource, ContentType } from '@plukd/shared'
+import { CATEGORIES, TAGS, CONTENT_TYPES } from '@plukd/shared'
 
-/**
- * Content type for classification - helps AI understand what kind of content this is
- */
-export type ContentType =
-  | 'thread'
-  | 'article'
-  | 'video'
-  | 'discussion'
-  | 'announcement'
-  | 'other'
+// Re-export ContentType from shared for backward compatibility
+export type { ContentType } from '@plukd/shared'
 
 /**
  * Result from Pass 1 classification (Flash model)
@@ -37,15 +29,17 @@ interface ClassificationInput {
 function getSourceHints(source: ContentSource): string {
   switch (source) {
     case 'twitter':
-      return `- Twitter/X content: likely a thread if multiple connected posts, announcement if from official account, discussion if replies-heavy`
+      return `- Twitter/X content: likely a thread if multiple connected posts, announcement if from official account, discussion if replies-heavy. Check for LIST if sharing multiple recommendations (tools, resources, books)`
     case 'reddit':
-      return `- Reddit content: discussion if post has significant comments, announcement if from moderator/official, article if long-form text post`
+      return `- Reddit content: discussion if post has significant comments, announcement if from moderator/official, article if long-form text post. Use LIST if post shares multiple resources/tools/recommendations`
     case 'youtube':
-      return `- YouTube content: always video type, check if tutorial/guide vs entertainment vs news`
+      return `- YouTube content: always video type UNLESS title/description indicates a curated list (e.g., "10 Best...", "Top 5...", "Must-Watch...", "My Favorite...") - then use LIST`
     case 'linkedin':
-      return `- LinkedIn content: often announcements (job/company news), discussions (industry debates), or articles (thought leadership)`
+      return `- LinkedIn content: often announcements (job/company news), discussions (industry debates), or articles (thought leadership). Use LIST if sharing multiple tools/resources/recommendations`
+    case 'instagram':
+      return `- Instagram content: Reels are often video content. IMPORTANT: If content shares multiple recommendations (movies, books, products, shows, tools, apps) use LIST type. This is common for "top 10" style content`
     case 'web':
-      return `- Web content: article if blog/news site, discussion if forum, announcement if press release, other if tool/resource page`
+      return `- Web content: article if blog/news site, discussion if forum, announcement if press release, other if tool/resource page. Use LIST if the primary purpose is sharing multiple curated items`
     default:
       return ''
   }
@@ -91,16 +85,21 @@ ${categoryList}
 ${tagList}
 
 3. CONTENT_TYPE (pick ONE):
-thread, article, video, discussion, announcement, other
+thread, article, video, discussion, announcement, list, other
 
 Hints:
 ${sourceHints}
+
+CONTENT TYPE DEFINITIONS:
 - thread: connected posts/tweets forming a narrative
 - article: long-form written content (blog, news, essay)
-- video: video content (always for YouTube)
+- video: video content (YouTube, Reels without list recommendations)
 - discussion: comment-heavy, multiple perspectives
 - announcement: official news, releases, launches
-- other: tools, resources, reference material
+- list: CURATED COLLECTIONS of multiple recommendations, resources, tools, books, movies, shows, apps. The PRIMARY purpose is sharing multiple specific items. Use this for: "10 Best AI Tools", "Books Every Founder Should Read", "My Top 5 Movies", "Must-Have Apps", "Resources for Learning X"
+- other: single tools, resources, reference material (not collections)
+
+IMPORTANT: If the content's main purpose is to share MULTIPLE recommendations or resources, use "list" type. This enables proper extraction of all items.
 
 Respond in JSON only:
 {"category":"...","tags":["..."],"contentType":"..."}`

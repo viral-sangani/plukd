@@ -4,7 +4,7 @@ import type { ComponentType } from 'react'
 import type { ContentSource } from '@plukd/shared'
 import { SOURCE_LABELS } from '@plukd/shared'
 import { cn } from '@/lib/utils'
-import { TwitterIcon, RedditIcon, LinkedInIcon, YouTubeIcon } from '@/components/icons'
+import { TwitterIcon, RedditIcon, LinkedInIcon, YouTubeIcon, InstagramIcon } from '@/components/icons'
 import { Globe } from 'lucide-react'
 
 interface SourceBadgeProps {
@@ -41,6 +41,11 @@ const sourceStyles: Record<ContentSource, { bg: string; text: string; border: st
     text: 'text-[#ff0000]',
     border: 'border-[#ff0000]/30',
   },
+  instagram: {
+    bg: 'bg-[#E4405F]/15',
+    text: 'text-[#E4405F]',
+    border: 'border-[#E4405F]/30',
+  },
   web: {
     bg: 'bg-foreground-muted/10',
     text: 'text-foreground-muted',
@@ -54,6 +59,7 @@ const sourceIcons: Record<ContentSource, ComponentType<{ className?: string }>> 
   reddit: RedditIcon,
   linkedin: LinkedInIcon,
   youtube: YouTubeIcon,
+  instagram: InstagramIcon,
   web: Globe,
 }
 

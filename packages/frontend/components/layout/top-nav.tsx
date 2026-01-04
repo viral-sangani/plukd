@@ -10,6 +10,7 @@ import {
   MessageCircle,
   Linkedin,
   Youtube,
+  Instagram,
   Globe,
   Menu,
   Search,
@@ -44,6 +45,7 @@ const sourceIcons: Record<ContentSource, React.ComponentType<{ className?: strin
   reddit: MessageCircle,
   linkedin: Linkedin,
   youtube: Youtube,
+  instagram: Instagram,
   web: Globe,
 }
 
@@ -52,10 +54,11 @@ const sourceLabels: Record<ContentSource, string> = {
   reddit: "Reddit",
   youtube: "YouTube",
   linkedin: "LinkedIn",
+  instagram: "Instagram",
   web: "Web",
 }
 
-const sources: ContentSource[] = ["twitter", "reddit", "youtube", "linkedin", "web"]
+const sources: ContentSource[] = ["twitter", "reddit", "youtube", "linkedin", "instagram", "web"]
 
 function getInitials(name: string | null, email: string): string {
   if (name) {

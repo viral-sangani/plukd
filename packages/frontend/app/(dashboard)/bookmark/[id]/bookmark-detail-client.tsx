@@ -18,10 +18,11 @@ import {
 import { SourceBadge } from '@/components/ui/source-badge'
 import { CategoryBadge } from '@/components/ui/category-badge'
 import { Button } from '@/components/ui/button'
+import { ResourceList } from '@/components/bookmarks/resource-list'
 import { TAG_LABELS } from '@plukd/shared/constants'
 import { useBookmark, useDeleteBookmark } from '@/lib/hooks'
 import { api } from '@/lib/api/client'
-import type { Bookmark, RawMetadata } from '@plukd/shared/types'
+import type { Bookmark, RawMetadata, ExtractedResource } from '@plukd/shared/types'
 
 interface BookmarkDetailClientProps {
   id: string
@@ -83,6 +84,9 @@ export function BookmarkDetailClient({ id, initialBookmark }: BookmarkDetailClie
   const [processingTimedOut, setProcessingTimedOut] = useState(false)
   const processingStartTimeRef = useRef<number | null>(null)
   const { data: bookmark, isLoading, isError, error, refetch } = useBookmark(id)
+  // Store refetch in a ref to avoid it being a dependency that triggers re-renders
+  const refetchRef = useRef(refetch)
+  refetchRef.current = refetch
   const deleteBookmark = useDeleteBookmark()
 
   // Use fetched data or initial bookmark from server
@@ -112,11 +116,12 @@ export function BookmarkDetailClient({ id, initialBookmark }: BookmarkDetailClie
         setProcessingTimedOut(true)
         return
       }
-      refetch()
+      refetchRef.current()
     }, 3000) // Poll every 3 seconds
 
     return () => clearInterval(interval)
-  }, [isProcessing, processingTimedOut, refetch])
+    // Note: refetch is not in deps because we use refetchRef to avoid re-creating the interval
+  }, [isProcessing, processingTimedOut])
 
   // Reset timeout state when processing completes
   useEffect(() => {
@@ -390,8 +395,43 @@ export function BookmarkDetailClient({ id, initialBookmark }: BookmarkDetailClie
           </section>
         )}
 
+        {/* Extracted Resources (for list-type content) */}
+        {displayBookmark.extracted_resources && displayBookmark.extracted_resources.length > 0 && (
+          <ResourceList resources={displayBookmark.extracted_resources as ExtractedResource[]} />
+        )}
+
         {/* AI Processing Status / Regenerate Button */}
-        {processingTimedOut && isProcessing ? (
+        {displayBookmark.processing_status === 'failed' ? (
+          <section className="mb-8">
+            <div className="bg-red-500/5 border border-red-500/20 rounded-none p-4 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <AlertCircle className="size-5 text-red-400 flex-shrink-0" />
+                <div>
+                  <p className="text-sm font-mono font-medium text-red-400">
+                    Processing failed
+                  </p>
+                  <p className="text-xs font-mono text-foreground-muted mt-0.5">
+                    {displayBookmark.processing_error || 'An error occurred while processing this bookmark.'}
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="font-mono flex-shrink-0 border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300"
+                onClick={handleRegenerate}
+                disabled={isRegenerating}
+              >
+                {isRegenerating ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Sparkles className="size-4" />
+                )}
+                Retry
+              </Button>
+            </div>
+          </section>
+        ) : processingTimedOut && isProcessing ? (
           <section className="mb-8">
             <div className="bg-red-500/5 border border-red-500/20 rounded-none p-4 flex items-center justify-between gap-4">
               <div className="flex items-center gap-3">

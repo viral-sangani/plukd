@@ -480,8 +480,27 @@ function BookmarkRowOverlay({ bookmark }: { bookmark: Bookmark }) {
   )
 }
 
+interface PaginationInfo {
+  page: number
+  limit: number
+  total: number
+  totalPages: number
+}
+
 interface BookmarkTableProps {
   bookmarks: Bookmark[]
+  /** Server-side pagination info */
+  pagination?: PaginationInfo
+  /** Current page number (1-indexed) */
+  currentPage: number
+  /** Number of rows per page */
+  rowsPerPage: number
+  /** Callback when page changes */
+  onPageChange: (page: number) => void
+  /** Callback when rows per page changes */
+  onRowsPerPageChange: (rows: number) => void
+  /** Whether a page change is in progress (for loading state) */
+  isPageChanging?: boolean
   onSelectBookmark?: (bookmark: Bookmark) => void
   onSelectionChange?: (selectedIds: Set<string>) => void
   isDeleteDialogOpen?: boolean
@@ -490,10 +509,16 @@ interface BookmarkTableProps {
   className?: string
 }
 
-const ROWS_PER_PAGE_OPTIONS = [10, 20, 50, 100]
+const ROWS_PER_PAGE_OPTIONS = [10, 25, 50, 100]
 
 export function BookmarkTable({
   bookmarks,
+  pagination,
+  currentPage,
+  rowsPerPage,
+  onPageChange,
+  onRowsPerPageChange,
+  isPageChanging = false,
   onSelectBookmark,
   onSelectionChange,
   isDeleteDialogOpen: controlledDeleteDialogOpen,
@@ -503,8 +528,6 @@ export function BookmarkTable({
 }: BookmarkTableProps) {
   const router = useRouter()
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set())
-  const [currentPage, setCurrentPage] = React.useState(1)
-  const [rowsPerPage, setRowsPerPage] = React.useState(10)
   const [internalDeleteDialogOpen, setInternalDeleteDialogOpen] = React.useState(false)
   const [activeId, setActiveId] = React.useState<string | null>(null)
   const [orderedBookmarkIds, setOrderedBookmarkIds] = React.useState<string[]>([])
@@ -552,7 +575,9 @@ export function BookmarkTable({
     })
   )
 
-  // Sort bookmarks based on current sort order
+  // Sort bookmarks based on current sort order (client-side reordering for drag-drop)
+  // Note: With server-side pagination, sorting is primarily done server-side,
+  // but we keep this for custom drag-drop ordering within the current page
   const sortedBookmarks = React.useMemo(() => {
     if (sortOrder === 'custom' && orderedBookmarkIds.length > 0) {
       // Sort by custom order
@@ -564,33 +589,22 @@ export function BookmarkTable({
       })
     }
 
-    // Sort by date
-    return [...bookmarks].sort((a, b) => {
-      const dateA = new Date(a.created_at).getTime()
-      const dateB = new Date(b.created_at).getTime()
-      return sortOrder === 'desc' ? dateB - dateA : dateA - dateB
-    })
+    // When not in custom order mode, use the server's order
+    return bookmarks
   }, [bookmarks, sortOrder, orderedBookmarkIds])
 
-  // Pagination calculations
-  const totalRows = sortedBookmarks.length
-  const totalPages = Math.ceil(totalRows / rowsPerPage)
-  const startIndex = (currentPage - 1) * rowsPerPage
-  const endIndex = Math.min(startIndex + rowsPerPage, totalRows)
-  const paginatedBookmarks = sortedBookmarks.slice(startIndex, endIndex)
+  // Use server-side pagination info
+  const totalRows = pagination?.total ?? bookmarks.length
+  const totalPages = pagination?.totalPages ?? Math.ceil(bookmarks.length / rowsPerPage)
+
+  // With server-side pagination, bookmarks are already paginated - no need to slice
+  const paginatedBookmarks = sortedBookmarks
 
   // Get sortable IDs for current page
   const sortableIds = React.useMemo(
     () => paginatedBookmarks.map((b) => b.id),
     [paginatedBookmarks]
   )
-
-  // Reset to first page when bookmarks change significantly
-  React.useEffect(() => {
-    if (currentPage > Math.ceil(bookmarks.length / rowsPerPage)) {
-      setCurrentPage(1)
-    }
-  }, [bookmarks.length, rowsPerPage, currentPage])
 
   // Notify parent of selection changes
   React.useEffect(() => {
@@ -600,12 +614,13 @@ export function BookmarkTable({
   const handleSelectAll = React.useCallback(
     (checked: boolean) => {
       if (checked) {
-        setSelectedIds(new Set(paginatedBookmarks.map((b) => b.id)))
+        // Select all bookmarks on the current page
+        setSelectedIds(new Set(bookmarks.map((b) => b.id)))
       } else {
         setSelectedIds(new Set())
       }
     },
-    [paginatedBookmarks]
+    [bookmarks]
   )
 
   const handleSelectRow = React.useCallback((id: string, checked: boolean) => {
@@ -780,10 +795,10 @@ export function BookmarkTable({
   }, [])
 
   const isAllSelected =
-    paginatedBookmarks.length > 0 &&
-    paginatedBookmarks.every((b) => selectedIds.has(b.id))
+    bookmarks.length > 0 &&
+    bookmarks.every((b) => selectedIds.has(b.id))
   const isSomeSelected =
-    paginatedBookmarks.some((b) => selectedIds.has(b.id)) && !isAllSelected
+    bookmarks.some((b) => selectedIds.has(b.id)) && !isAllSelected
 
   if (bookmarks.length === 0) {
     return emptyComponent ?? <BookmarkEmpty className={className} />
@@ -791,7 +806,7 @@ export function BookmarkTable({
 
   const selectedCount = selectedIds.size
   const activeBookmark = activeId
-    ? paginatedBookmarks.find((b) => b.id === activeId)
+    ? bookmarks.find((b) => b.id === activeId)
     : null
 
   return (
@@ -862,7 +877,15 @@ export function BookmarkTable({
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
       >
-        <div className="rounded-none overflow-hidden border border-border">
+        <div className={cn(
+          "rounded-none overflow-hidden border border-border relative",
+          isPageChanging && "opacity-60 pointer-events-none"
+        )}>
+          {isPageChanging && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/50">
+              <Loader2 className="size-6 animate-spin text-accent" />
+            </div>
+          )}
           <Table>
             <TableHeader>
               <TableRow className="bg-transparent hover:bg-transparent border-b border-border">
@@ -970,8 +993,11 @@ export function BookmarkTable({
       {/* Pagination */}
       <div className="flex items-center justify-between px-2 py-3">
         {/* Selection info */}
-        <div className="text-xs text-foreground-muted font-mono">
-          {selectedIds.size} of {totalRows} row(s) selected
+        <div className="text-xs text-foreground-muted font-mono flex items-center gap-2">
+          <span>{selectedIds.size} of {totalRows} row(s) selected</span>
+          {isPageChanging && (
+            <Loader2 className="size-3 animate-spin text-accent" />
+          )}
         </div>
 
         {/* Pagination controls */}
@@ -981,10 +1007,8 @@ export function BookmarkTable({
             <span className="text-[10px] text-foreground-muted font-mono uppercase tracking-[0.15em]">Rows per page</span>
             <Select
               value={String(rowsPerPage)}
-              onValueChange={(value) => {
-                setRowsPerPage(Number(value))
-                setCurrentPage(1)
-              }}
+              onValueChange={(value) => onRowsPerPageChange(Number(value))}
+              disabled={isPageChanging}
             >
               <SelectTrigger className="w-[70px] h-8 text-sm">
                 <SelectValue />
@@ -1010,8 +1034,8 @@ export function BookmarkTable({
               variant="ghost"
               size="icon-sm"
               className="group"
-              onClick={() => setCurrentPage(1)}
-              disabled={currentPage === 1}
+              onClick={() => onPageChange(1)}
+              disabled={currentPage === 1 || isPageChanging}
               aria-label="First page"
             >
               <ChevronsLeft className="size-4 transition-colors text-foreground-muted group-hover:text-foreground" />
@@ -1020,8 +1044,8 @@ export function BookmarkTable({
               variant="ghost"
               size="icon-sm"
               className="group"
-              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-              disabled={currentPage === 1}
+              onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+              disabled={currentPage === 1 || isPageChanging}
               aria-label="Previous page"
             >
               <ChevronLeft className="size-4 transition-colors text-foreground-muted group-hover:text-foreground" />
@@ -1030,8 +1054,8 @@ export function BookmarkTable({
               variant="ghost"
               size="icon-sm"
               className="group"
-              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              disabled={currentPage === totalPages || totalPages === 0}
+              onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
+              disabled={currentPage === totalPages || totalPages === 0 || isPageChanging}
               aria-label="Next page"
             >
               <ChevronRight className="size-4 transition-colors text-foreground-muted group-hover:text-foreground" />
@@ -1040,8 +1064,8 @@ export function BookmarkTable({
               variant="ghost"
               size="icon-sm"
               className="group"
-              onClick={() => setCurrentPage(totalPages)}
-              disabled={currentPage === totalPages || totalPages === 0}
+              onClick={() => onPageChange(totalPages)}
+              disabled={currentPage === totalPages || totalPages === 0 || isPageChanging}
               aria-label="Last page"
             >
               <ChevronsRight className="size-4 transition-colors text-foreground-muted group-hover:text-foreground" />

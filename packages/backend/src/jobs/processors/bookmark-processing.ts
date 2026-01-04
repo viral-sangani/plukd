@@ -4,18 +4,19 @@ import { supabaseAdmin } from '../../config/supabase'
 import { extractContent } from '../../lib/extractors'
 import { extractOGMetadata } from '../../lib/extractors/og-metadata'
 import { processContentWithRetry } from '../../lib/ai/process'
-import { detectSource } from '@plukd/shared'
+import { detectSource, generateFallbackTitle } from '@plukd/shared'
 import type { ProcessingStatus, ContentSource, ExtractedContent, RawMetadata } from '@plukd/shared'
 
 /**
  * Create a fallback ExtractedContent when extraction fails.
- * Provides minimal context for AI processing.
+ * Provides minimal context for AI processing with a smart title
+ * generated from the URL instead of just "Untitled".
  */
 function createFallbackContent(url: string, source: ContentSource): ExtractedContent {
   return {
     url,
     source,
-    title: 'Untitled',
+    title: generateFallbackTitle(url, source),
     content: `Content from ${url}`,
   }
 }
@@ -183,11 +184,16 @@ export async function processBookmarkJob(job: Job<BookmarkProcessingJob>): Promi
     )
 
     // Step 4: Update bookmark with all processed data
+    // Use extracted title, or fall back to a smart title from the URL
+    const finalTitle = extractedContent?.title ?? generateFallbackTitle(url, source)
+    // Use the detected source (may differ from stored source, e.g., 'instagram' vs 'web')
+    const finalSource = extractedContent?.source ?? source
     const { error: updateError } = await supabaseAdmin
       .from('bookmarks')
       .update({
         // Extracted content (or defaults if extraction failed)
-        title: extractedContent?.title ?? 'Untitled',
+        title: finalTitle,
+        source: finalSource, // Update source in case it was re-detected (e.g., 'web' -> 'instagram')
         author: extractedContent?.author ?? null,
         author_url: extractedContent?.authorUrl ?? null,
         content: extractedContent?.content ?? null,
@@ -199,6 +205,8 @@ export async function processBookmarkJob(job: Job<BookmarkProcessingJob>): Promi
         tags: aiResult.tags,
         blurb: aiResult.blurb,
         summary: aiResult.summary,
+        content_type: aiResult.contentType,
+        extracted_resources: aiResult.extractedResources ?? null,
         // Status
         processing_status: 'completed' as ProcessingStatus,
         processing_error: null,
@@ -224,6 +232,7 @@ export async function processBookmarkJob(job: Job<BookmarkProcessingJob>): Promi
         .from('bookmarks')
         .update({
           title: extractedContent.title,
+          source: extractedContent.source ?? source, // Update source if re-detected
           author: extractedContent.author ?? null,
           author_url: extractedContent.authorUrl ?? null,
           content: extractedContent.content ?? null,

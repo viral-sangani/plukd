@@ -8,9 +8,6 @@ import { startWorker } from './jobs'
 
 const app = new Hono()
 
-// Start the bookmark processing worker
-startWorker()
-
 // Global middleware
 app.use('*', logger())
 app.use('*', cors())
@@ -28,11 +25,22 @@ app.get('/', (c) =>
 // Mount API routes
 app.route('/api', routes)
 
-console.log(`[server] Starting on port ${env.PORT}`)
+// Start server and worker
+async function start() {
+  // Start the bookmark processing worker (waits for Redis)
+  await startWorker()
 
-const server = Bun.serve({
-  port: env.PORT,
-  fetch: app.fetch,
+  console.log(`[server] Starting on port ${env.PORT}`)
+
+  const server = Bun.serve({
+    port: env.PORT,
+    fetch: app.fetch,
+  })
+
+  console.log(`[server] Listening on ${server.url}`)
+}
+
+start().catch((err) => {
+  console.error('[server] Failed to start:', err)
+  process.exit(1)
 })
-
-console.log(`[server] Listening on ${server.url}`)

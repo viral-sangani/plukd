@@ -123,6 +123,8 @@ export async function processContent(
     tags: classification.tags,
     blurb: summarization.blurb,
     summary: summarization.summary,
+    contentType: classification.contentType,
+    extractedResources: summarization.extractedResources,
   }
 }
 

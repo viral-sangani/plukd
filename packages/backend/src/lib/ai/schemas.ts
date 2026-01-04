@@ -1,21 +1,9 @@
 import { z } from 'zod'
-import type { Category, Tag } from '@plukd/shared'
-import { CATEGORIES, TAGS } from '@plukd/shared'
+import type { Category, Tag, ContentType, ExtractedResource } from '@plukd/shared'
+import { CATEGORIES, TAGS, CONTENT_TYPES } from '@plukd/shared'
 
-/**
- * Content type classification for extracted content.
- * Helps determine the format and structure of the content.
- */
-export const CONTENT_TYPES = [
-  'thread',
-  'article',
-  'video',
-  'discussion',
-  'announcement',
-  'other',
-] as const
-
-export type ContentType = (typeof CONTENT_TYPES)[number]
+// Re-export from shared for backward compatibility
+export type { ContentType } from '@plukd/shared'
 
 /**
  * Schema for Pass 1: Classification
@@ -33,11 +21,21 @@ export const classificationSchema = z.object({
     .max(5)
     .describe('2-5 tags that describe the content type and format'),
   contentType: z
-    .enum(CONTENT_TYPES)
+    .enum(CONTENT_TYPES as unknown as [ContentType, ...ContentType[]])
     .describe('The structural format of the content'),
 })
 
 export type ClassificationResult = z.infer<typeof classificationSchema>
+
+/**
+ * Schema for extracted resource (for list-type content)
+ */
+export const extractedResourceSchema = z.object({
+  name: z.string().describe('Name of the resource/item'),
+  description: z.string().optional().describe('Brief description (1-2 sentences)'),
+  url: z.string().optional().describe('URL if mentioned in content'),
+  category: z.string().optional().describe('Type: book, tool, app, movie, show, podcast, course, resource, other'),
+})
 
 /**
  * Schema for Pass 2: Summarization
@@ -45,6 +43,7 @@ export type ClassificationResult = z.infer<typeof classificationSchema>
  * Uses Gemini Pro for high-quality, nuanced summarization:
  * - Blurb: A concise summary for list view display
  * - Summary: A detailed summary with key insights and takeaways
+ * - ExtractedResources: Array of structured resources (for list-type content)
  */
 export const summarizationSchema = z.object({
   blurb: z
@@ -61,6 +60,10 @@ export const summarizationSchema = z.object({
     .describe(
       'A concise bullet-point summary with **bold emphasis** on key phrases. 5-10 short bullet points, each 1-2 sentences max.'
     ),
+  extractedResources: z
+    .array(extractedResourceSchema)
+    .optional()
+    .describe('For list-type content: all items/resources mentioned, extracted as structured data'),
 })
 
 export type SummarizationResult = z.infer<typeof summarizationSchema>
@@ -77,4 +80,5 @@ export interface TwoPassProcessingResult {
   // From Pass 2 (Summarization)
   blurb: string
   summary: string
+  extractedResources?: ExtractedResource[]
 }
