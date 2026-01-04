@@ -11,6 +11,7 @@ export interface UseBookmarksParams {
   source?: string
   search?: string
   status?: ProcessingStatus
+  archived?: boolean
   sortBy?: 'created_at' | 'title'
   sortOrder?: 'asc' | 'desc'
 }
@@ -29,6 +30,7 @@ async function fetchBookmarks(
   if (params.source) searchParams.set('source', params.source)
   if (params.search) searchParams.set('search', params.search)
   if (params.status) searchParams.set('status', params.status)
+  if (params.archived !== undefined) searchParams.set('archived', String(params.archived))
   if (params.sortBy) searchParams.set('sortBy', params.sortBy)
   if (params.sortOrder) searchParams.set('sortOrder', params.sortOrder)
 

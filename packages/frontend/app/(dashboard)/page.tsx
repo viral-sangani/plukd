@@ -2,12 +2,13 @@
 
 import { useState, useCallback, Suspense, useEffect, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { Plus, Loader2, AlertCircle, RefreshCw, Trash2, SearchX } from 'lucide-react'
+import { Plus, Loader2, AlertCircle, RefreshCw, Trash2, SearchX, Archive } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { BookmarkTable } from '@/components/bookmarks/bookmark-table'
 import { BookmarkFilters } from '@/components/bookmarks/bookmark-filters'
 import { AddBookmarkDialog } from '@/components/bookmarks/add-bookmark-dialog'
 import { useBookmarks, usePrefetchAdjacentPages } from '@/lib/hooks'
+import { api } from '@/lib/api/client'
 import type { Bookmark, Category, ContentSource, ProcessingStatus } from '@plukd/shared'
 
 const DEFAULT_PAGE_SIZE = 25
@@ -57,9 +58,12 @@ function DashboardPageContent() {
   const router = useRouter()
   const searchQuery = searchParams.get('search') || ''
   const sourceParam = searchParams.get('source')
+  const archivedParam = searchParams.get('archived')
 
   // Derive source filter from URL - no state needed for URL-synced values
   const urlSource = isValidSource(sourceParam) ? sourceParam : null
+  // Derive archived state from URL
+  const showArchived = archivedParam === 'true'
 
   // Filter state for non-URL filters
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null)
@@ -95,6 +99,7 @@ function DashboardPageContent() {
     category: selectedCategory ?? undefined,
     source: urlSource ?? undefined,
     status: selectedStatus ?? undefined,
+    archived: showArchived,
   })
 
   // Prefetch adjacent pages for smooth navigation
@@ -107,6 +112,7 @@ function DashboardPageContent() {
       category: selectedCategory ?? undefined,
       source: urlSource ?? undefined,
       status: selectedStatus ?? undefined,
+      archived: showArchived,
     },
     totalPages
   )
@@ -115,6 +121,7 @@ function DashboardPageContent() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
+  const [isArchiving, setIsArchiving] = useState(false)
 
   const handleSelectionChange = useCallback((ids: Set<string>) => {
     setSelectedIds(ids)
@@ -124,10 +131,18 @@ function DashboardPageContent() {
     setSelectedCategory(null)
     setSelectedStatus(null)
     setCurrentPage(1) // Reset to first page when filters clear
-    // Also clear source from URL if present
+    // Clear source and archived from URL if present
     const params = new URLSearchParams(searchParams.toString())
+    let shouldNavigate = false
     if (params.has('source')) {
       params.delete('source')
+      shouldNavigate = true
+    }
+    if (params.has('archived')) {
+      params.delete('archived')
+      shouldNavigate = true
+    }
+    if (shouldNavigate) {
       router.push(`/?${params.toString()}`)
     }
   }, [router, searchParams])
@@ -160,6 +175,17 @@ function DashboardPageContent() {
     setCurrentPage(1) // Reset to first page when status filter changes
   }, [])
 
+  const handleShowArchivedChange = useCallback((show: boolean) => {
+    setCurrentPage(1) // Reset to first page when archive filter changes
+    const params = new URLSearchParams(searchParams.toString())
+    if (show) {
+      params.set('archived', 'true')
+    } else {
+      params.delete('archived')
+    }
+    router.push(`/?${params.toString()}`)
+  }, [router, searchParams])
+
   const handlePageChange = useCallback((page: number) => {
     setCurrentPage(page)
     setSelectedIds(new Set()) // Clear selection when changing pages
@@ -170,6 +196,25 @@ function DashboardPageContent() {
     setCurrentPage(1) // Reset to first page when page size changes
     setSelectedIds(new Set()) // Clear selection when changing page size
   }, [])
+
+  const handleBulkArchive = useCallback(async () => {
+    if (selectedIds.size === 0) return
+
+    setIsArchiving(true)
+    try {
+      await api.patch('/api/bookmarks/bulk-archive', {
+        ids: Array.from(selectedIds),
+        archived: !showArchived, // If viewing archived, unarchive; otherwise archive
+      })
+      setSelectedIds(new Set())
+      refetch()
+      window.dispatchEvent(new Event('bookmarks-updated'))
+    } catch (error) {
+      console.error('Failed to archive bookmarks:', error)
+    } finally {
+      setIsArchiving(false)
+    }
+  }, [selectedIds, showArchived, refetch])
 
   // Use API data - don't fall back to mock data so we see real state
   const bookmarks: Bookmark[] = data?.bookmarks ?? []
@@ -214,14 +259,29 @@ function DashboardPageContent() {
               <RefreshCw className={`size-4 transition-colors text-foreground-muted group-hover:text-foreground ${isFetching ? 'animate-spin' : ''}`} />
             </Button>
             {selectedCount > 0 && (
-              <Button
-                variant="outline"
-                className="font-medium text-red-400 border-red-900/50 hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/50"
-                onClick={() => setIsDeleteDialogOpen(true)}
-              >
-                <Trash2 className="size-4" />
-                Delete
-              </Button>
+              <>
+                <Button
+                  variant="outline"
+                  className="font-medium border-border-subtle hover:bg-background-emphasis"
+                  onClick={handleBulkArchive}
+                  disabled={isArchiving}
+                >
+                  {isArchiving ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Archive className="size-4" />
+                  )}
+                  {showArchived ? 'Unarchive' : 'Archive'}
+                </Button>
+                <Button
+                  variant="outline"
+                  className="font-medium text-red-400 border-red-900/50 hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/50"
+                  onClick={() => setIsDeleteDialogOpen(true)}
+                >
+                  <Trash2 className="size-4" />
+                  Delete
+                </Button>
+              </>
             )}
             <Button
               variant="default"
@@ -240,9 +300,11 @@ function DashboardPageContent() {
             selectedCategory={selectedCategory}
             selectedSource={urlSource}
             selectedStatus={selectedStatus}
+            showArchived={showArchived}
             onCategoryChange={handleCategoryChange}
             onSourceChange={handleSourceChange}
             onStatusChange={handleStatusChange}
+            onShowArchivedChange={handleShowArchivedChange}
             onClearAll={handleClearAllFilters}
           />
         </div>

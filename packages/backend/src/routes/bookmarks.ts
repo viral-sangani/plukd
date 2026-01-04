@@ -43,6 +43,10 @@ const listQuerySchema = z.object({
   tags: z.string().optional(), // comma-separated
   search: z.string().optional(),
   status: processingStatusSchema.optional(),
+  archived: z.preprocess(
+    (val) => val === 'true' || val === true,
+    z.boolean().default(false)
+  ),
   sortBy: z.enum(['created_at', 'title']).default('created_at'),
   sortOrder: z.enum(['asc', 'desc']).default('desc'),
 })
@@ -64,6 +68,7 @@ bookmarksRoutes.get('/', async (c) => {
       tags: query.tags || undefined,
       search: query.search || undefined,
       status: query.status || undefined,
+      archived: query.archived || false,
       sortBy: query.sortBy || 'created_at',
       sortOrder: query.sortOrder || 'desc',
     })
@@ -81,6 +86,7 @@ bookmarksRoutes.get('/', async (c) => {
       .from('bookmarks')
       .select('*', { count: 'exact' })
       .eq('user_id', user.id)
+      .eq('is_archived', params.archived)
 
     // Apply filters
     if (params.status) {
@@ -277,14 +283,27 @@ bookmarksRoutes.get('/counts', async (c) => {
   try {
     const user = c.get('user')
 
-    // Get total count
+    // Get total count (non-archived only)
     const { count: total, error: totalError } = await supabaseAdmin
       .from('bookmarks')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', user.id)
+      .eq('is_archived', false)
 
     if (totalError) {
       console.error('[bookmarks] Error fetching total count:', totalError)
+      return c.json({ error: 'Failed to fetch counts' }, 500)
+    }
+
+    // Get archived count
+    const { count: archivedCount, error: archivedError } = await supabaseAdmin
+      .from('bookmarks')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .eq('is_archived', true)
+
+    if (archivedError) {
+      console.error('[bookmarks] Error fetching archived count:', archivedError)
       return c.json({ error: 'Failed to fetch counts' }, 500)
     }
 
@@ -299,6 +318,7 @@ bookmarksRoutes.get('/counts', async (c) => {
           .select('*', { count: 'exact', head: true })
           .eq('user_id', user.id)
           .eq('source', source)
+          .eq('is_archived', false)
 
         // Handle case where error is truthy but has no meaningful message
         if (error && error.message) {
@@ -322,6 +342,7 @@ bookmarksRoutes.get('/counts', async (c) => {
 
     return c.json({
       total: total || 0,
+      archived: archivedCount || 0,
       bySource: {
         twitter: bySource.twitter ?? 0,
         reddit: bySource.reddit ?? 0,
@@ -599,6 +620,12 @@ bookmarksRoutes.patch('/:id', async (c) => {
     if (blurb !== undefined) updateData.blurb = blurb
     if (summary !== undefined) updateData.summary = summary
 
+    // Handle is_archived separately since it's not in updateBookmarkSchema
+    const isArchivedValue = body.is_archived
+    if (typeof isArchivedValue === 'boolean') {
+      updateData.is_archived = isArchivedValue
+    }
+
     // Update bookmark
     const { data: updatedBookmark, error: updateError } = await supabaseAdmin
       .from('bookmarks')
@@ -616,6 +643,48 @@ bookmarksRoutes.patch('/:id', async (c) => {
     return c.json(updatedBookmark)
   } catch (error) {
     console.error('[bookmarks] Error in patch:', error)
+    return c.json({ error: 'Internal server error' }, 500)
+  }
+})
+
+// Bulk archive request schema
+const bulkArchiveSchema = z.object({
+  ids: z.array(z.string().uuid()).min(1, 'At least one bookmark ID required'),
+  archived: z.boolean(),
+})
+
+// PATCH /bulk-archive - Archive or unarchive multiple bookmarks
+bookmarksRoutes.patch('/bulk-archive', async (c) => {
+  try {
+    const user = c.get('user')
+    const body = await c.req.json()
+
+    // Validate request body
+    const { ids, archived } = bulkArchiveSchema.parse(body)
+
+    // Update all specified bookmarks
+    const { data: updatedBookmarks, error: updateError } = await supabaseAdmin
+      .from('bookmarks')
+      .update({ is_archived: archived, updated_at: new Date().toISOString() } as never)
+      .eq('user_id', user.id)
+      .in('id', ids)
+      .select()
+
+    if (updateError) {
+      console.error('[bookmarks] Error bulk archiving bookmarks:', updateError)
+      return c.json({ error: 'Failed to update bookmarks' }, 500)
+    }
+
+    return c.json({
+      success: true,
+      updated: updatedBookmarks?.length || 0,
+      archived,
+    })
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return c.json({ error: error.issues[0]?.message || 'Invalid request' }, 400)
+    }
+    console.error('[bookmarks] Error in bulk-archive:', error)
     return c.json({ error: 'Internal server error' }, 500)
   }
 })

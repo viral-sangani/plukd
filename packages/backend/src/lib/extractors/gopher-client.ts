@@ -22,7 +22,7 @@ const DEFAULT_TIMEOUT_MS = 120000
 export type GopherPlatform = 'twitter' | 'reddit'
 
 // Job status values returned by the API
-type GopherJobStatus = 'done(saved)' | 'in progress'
+type GopherJobStatus = 'done(saved)' | 'done(not saved)' | 'in progress'
 
 // Submit job response
 interface GopherSubmitResponse {
@@ -254,7 +254,8 @@ async function pollUntilComplete(
 
     const status = await checkJobStatus(uuid)
 
-    if (status === 'done(saved)') {
+    // Both 'done(saved)' and 'done(not saved)' indicate the job is complete
+    if (status === 'done(saved)' || status === 'done(not saved)') {
       return
     }
 

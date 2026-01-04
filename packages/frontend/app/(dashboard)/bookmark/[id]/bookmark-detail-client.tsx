@@ -14,6 +14,8 @@ import {
   AlertCircle,
   Trash2,
   Sparkles,
+  Archive,
+  ArchiveRestore,
 } from 'lucide-react'
 import { SourceBadge } from '@/components/ui/source-badge'
 import { CategoryBadge } from '@/components/ui/category-badge'
@@ -81,6 +83,7 @@ export function BookmarkDetailClient({ id, initialBookmark }: BookmarkDetailClie
   const router = useRouter()
   const [copied, setCopied] = useState(false)
   const [isRegenerating, setIsRegenerating] = useState(false)
+  const [isArchiving, setIsArchiving] = useState(false)
   const [processingTimedOut, setProcessingTimedOut] = useState(false)
   const processingStartTimeRef = useRef<number | null>(null)
   const { data: bookmark, isLoading, isError, error, refetch } = useBookmark(id)
@@ -145,6 +148,28 @@ export function BookmarkDetailClient({ id, initialBookmark }: BookmarkDetailClie
       toast.error('Failed to delete bookmark', {
         description: err instanceof Error ? err.message : 'Please try again',
       })
+    }
+  }
+
+  const handleArchive = async () => {
+    if (!displayBookmark) return
+
+    const newArchivedState = !displayBookmark.is_archived
+    setIsArchiving(true)
+    try {
+      await api.patch(`/api/bookmarks/${id}`, {
+        is_archived: newArchivedState,
+      })
+      toast.success(newArchivedState ? 'Bookmark archived' : 'Bookmark unarchived')
+      // Dispatch event to refresh sidebar counts
+      window.dispatchEvent(new CustomEvent('bookmarks-updated'))
+      refetch()
+    } catch (err) {
+      toast.error(newArchivedState ? 'Failed to archive bookmark' : 'Failed to unarchive bookmark', {
+        description: err instanceof Error ? err.message : 'Please try again',
+      })
+    } finally {
+      setIsArchiving(false)
     }
   }
 
@@ -317,20 +342,39 @@ export function BookmarkDetailClient({ id, initialBookmark }: BookmarkDetailClie
           <ArrowLeft className="size-4" />
           <span>Back</span>
         </Link>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="group text-foreground-muted hover:text-red-400 hover:bg-red-500/10"
-          onClick={handleDelete}
-          disabled={deleteBookmark.isPending}
-        >
-          {deleteBookmark.isPending ? (
-            <Loader2 className="size-4 animate-spin" />
-          ) : (
-            <Trash2 className="size-4 transition-colors group-hover:text-red-400" />
-          )}
-          <span className="sr-only">Delete bookmark</span>
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="group text-foreground-muted hover:text-foreground hover:bg-background-emphasis"
+            onClick={handleArchive}
+            disabled={isArchiving}
+            title={displayBookmark.is_archived ? 'Unarchive bookmark' : 'Archive bookmark'}
+          >
+            {isArchiving ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : displayBookmark.is_archived ? (
+              <ArchiveRestore className="size-4 transition-colors" />
+            ) : (
+              <Archive className="size-4 transition-colors" />
+            )}
+            <span className="sr-only">{displayBookmark.is_archived ? 'Unarchive' : 'Archive'} bookmark</span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="group text-foreground-muted hover:text-red-400 hover:bg-red-500/10"
+            onClick={handleDelete}
+            disabled={deleteBookmark.isPending}
+          >
+            {deleteBookmark.isPending ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Trash2 className="size-4 transition-colors group-hover:text-red-400" />
+            )}
+            <span className="sr-only">Delete bookmark</span>
+          </Button>
+        </div>
       </div>
 
       {/* Main Content Card */}
@@ -397,7 +441,10 @@ export function BookmarkDetailClient({ id, initialBookmark }: BookmarkDetailClie
 
         {/* Extracted Resources (for list-type content) */}
         {displayBookmark.extracted_resources && displayBookmark.extracted_resources.length > 0 && (
-          <ResourceList resources={displayBookmark.extracted_resources as ExtractedResource[]} />
+          <ResourceList
+            resources={displayBookmark.extracted_resources as ExtractedResource[]}
+            layoutHint={displayBookmark.resource_layout_hint}
+          />
         )}
 
         {/* AI Processing Status / Regenerate Button */}

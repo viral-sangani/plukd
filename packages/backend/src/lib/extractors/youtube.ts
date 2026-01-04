@@ -115,7 +115,7 @@ async function fetchYouTubeTranscript(videoId: string): Promise<string | null> {
       return null
     }
 
-    const transcriptData = await transcriptResponse.json()
+    const transcriptData = await transcriptResponse.json() as { events?: Array<{ segs?: Array<{ utf8?: string }> }> }
 
     // Extract text from the transcript events
     const events = transcriptData.events || []
@@ -208,7 +208,7 @@ export async function extractYouTubeContent(url: string): Promise<ExtractedConte
     source: 'youtube',
     title,
     content,
-    transcript,
+    transcript: transcript ?? undefined,
     mediaUrls: ogMetadata.ogImage ? [ogMetadata.ogImage] : undefined,
     ogTitle: ogMetadata.ogTitle,
     ogDescription: ogMetadata.ogDescription,

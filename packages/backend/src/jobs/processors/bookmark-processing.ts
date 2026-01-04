@@ -207,6 +207,7 @@ export async function processBookmarkJob(job: Job<BookmarkProcessingJob>): Promi
         summary: aiResult.summary,
         content_type: aiResult.contentType,
         extracted_resources: aiResult.extractedResources ?? null,
+        resource_layout_hint: aiResult.resourceLayoutHint ?? null,
         // Status
         processing_status: 'completed' as ProcessingStatus,
         processing_error: null,

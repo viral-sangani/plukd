@@ -13,6 +13,7 @@
 export {
   buildClassificationPrompt,
   prepareForClassification,
+  getValidImageUrls,
   type ClassificationResult,
   type ContentType,
 } from './classification'

@@ -73,6 +73,8 @@ import {
   ImageIcon,
   ArrowUp,
   ArrowDown,
+  Archive,
+  ArchiveRestore,
 } from 'lucide-react'
 import {
   Dialog,
@@ -175,6 +177,7 @@ interface SortableBookmarkRowProps {
   onCopyUrl: (url: string, e: React.MouseEvent) => void
   onOpenOriginal: (url: string, e: React.MouseEvent) => void
   onEdit: (bookmarkId: string, e: React.MouseEvent) => void
+  onArchive: (bookmark: Bookmark, e: React.MouseEvent) => void
   onDelete: (bookmark: Bookmark, e: React.MouseEvent) => void
 }
 
@@ -186,6 +189,7 @@ function SortableBookmarkRow({
   onCopyUrl,
   onOpenOriginal,
   onEdit,
+  onArchive,
   onDelete,
 }: SortableBookmarkRowProps) {
   const {
@@ -381,6 +385,23 @@ function SortableBookmarkRow({
             >
               <Pencil className="size-4" />
               Edit
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={(e) =>
+                onArchive(bookmark, e as unknown as React.MouseEvent)
+              }
+            >
+              {bookmark.is_archived ? (
+                <>
+                  <ArchiveRestore className="size-4" />
+                  Unarchive
+                </>
+              ) : (
+                <>
+                  <Archive className="size-4" />
+                  Archive
+                </>
+              )}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
@@ -690,6 +711,27 @@ export function BookmarkTable({
     [router]
   )
 
+  const handleArchive = React.useCallback(
+    async (bookmark: Bookmark, e: React.MouseEvent) => {
+      e.stopPropagation()
+      const newArchivedState = !bookmark.is_archived
+      try {
+        await api.patch(`/api/bookmarks/${bookmark.id}`, {
+          is_archived: newArchivedState,
+        })
+
+        toast.success(newArchivedState ? 'Bookmark archived' : 'Bookmark unarchived')
+
+        // Dispatch event to refresh sidebar counts and bookmark list
+        window.dispatchEvent(new CustomEvent('bookmarks-updated'))
+        router.refresh()
+      } catch {
+        toast.error(newArchivedState ? 'Failed to archive bookmark' : 'Failed to unarchive bookmark')
+      }
+    },
+    [router]
+  )
+
   const handleBulkDelete = React.useCallback(async () => {
     const idsToDelete = Array.from(selectedIds)
     if (idsToDelete.length === 0) return
@@ -974,6 +1016,7 @@ export function BookmarkTable({
                     onCopyUrl={handleCopyUrl}
                     onOpenOriginal={handleOpenOriginal}
                     onEdit={handleEdit}
+                    onArchive={handleArchive}
                     onDelete={handleDelete}
                   />
                 ))}

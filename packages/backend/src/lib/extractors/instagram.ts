@@ -138,7 +138,7 @@ Return ONLY the title, nothing else.`
     const { text } = await generateText({
       model: google('gemini-2.0-flash'),
       prompt,
-      maxTokens: 50,
+      maxOutputTokens: 50,
     })
 
     const title = text.trim()

@@ -16,6 +16,7 @@ const examplesBySource: Record<ContentSource, FewShotExample[]> = {
   youtube: videoExamples,
   web: articleExamples,
   linkedin: articleExamples, // LinkedIn posts are similar to articles in structure
+  instagram: videoExamples, // Instagram Reels are similar to videos
 }
 
 /**

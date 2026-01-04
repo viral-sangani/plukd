@@ -1,7 +1,7 @@
 // Database types for Supabase
 // This matches the schema defined in plukd-spec.md
 
-export type ContentSource = 'twitter' | 'reddit' | 'linkedin' | 'youtube' | 'web'
+export type ContentSource = 'twitter' | 'reddit' | 'linkedin' | 'youtube' | 'instagram' | 'web'
 
 export type Category =
   // Tech
@@ -126,9 +126,13 @@ export interface Database {
           tags: Tag[]
           blurb: string
           summary: string
+          content_type: string | null
+          extracted_resources: Record<string, unknown>[] | null
+          resource_layout_hint: string | null
           processing_status: ProcessingStatus
           processing_error: string | null
           raw_metadata: Record<string, unknown> | null
+          is_archived: boolean
           created_at: string
           updated_at: string
         }
@@ -147,9 +151,13 @@ export interface Database {
           tags?: Tag[]
           blurb: string
           summary: string
+          content_type?: string | null
+          extracted_resources?: Record<string, unknown>[] | null
+          resource_layout_hint?: string | null
           processing_status?: ProcessingStatus
           processing_error?: string | null
           raw_metadata?: Record<string, unknown> | null
+          is_archived?: boolean
           created_at?: string
           updated_at?: string
         }
@@ -168,9 +176,13 @@ export interface Database {
           tags?: Tag[]
           blurb?: string
           summary?: string
+          content_type?: string | null
+          extracted_resources?: Record<string, unknown>[] | null
+          resource_layout_hint?: string | null
           processing_status?: ProcessingStatus
           processing_error?: string | null
           raw_metadata?: Record<string, unknown> | null
+          is_archived?: boolean
           created_at?: string
           updated_at?: string
         }
@@ -238,6 +250,7 @@ export interface BookmarkListParams {
   source?: ContentSource
   search?: string
   status?: ProcessingStatus
+  archived?: boolean
   sortBy?: 'created_at' | 'title'
   sortOrder?: 'asc' | 'desc'
 }

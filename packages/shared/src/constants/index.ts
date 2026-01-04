@@ -1,4 +1,4 @@
-import type { Category, Tag, ContentSource, ContentType } from '../types'
+import type { Category, Tag, ContentSource, ContentType, ResourceLayoutHint } from '../types'
 
 export const CATEGORIES = [
   // Tech
@@ -263,4 +263,35 @@ export const CONTENT_TYPE_DESCRIPTIONS: Record<ContentType, string> = {
   announcement: 'Official news, releases, product launches',
   list: 'Curated collections of recommendations, resources, tools, books, movies',
   other: 'Tools, resources, reference material',
+}
+
+// Resource layout hints for displaying extracted resources
+export const RESOURCE_LAYOUT_HINTS = [
+  'numbered-steps',
+  'grid',
+  'accordion',
+  'checklist',
+  'cards',
+  'table',
+  'simple-list',
+] as const satisfies readonly ResourceLayoutHint[]
+
+export const RESOURCE_LAYOUT_HINT_LABELS: Record<ResourceLayoutHint, string> = {
+  'numbered-steps': 'Numbered Steps',
+  grid: 'Grid',
+  accordion: 'Accordion',
+  checklist: 'Checklist',
+  cards: 'Cards',
+  table: 'Table',
+  'simple-list': 'Simple List',
+}
+
+export const RESOURCE_LAYOUT_HINT_DESCRIPTIONS: Record<ResourceLayoutHint, string> = {
+  'numbered-steps': 'Sequential guides, step-by-step instructions',
+  grid: 'Tools, products, visual collections',
+  accordion: 'Content grouped by category',
+  checklist: 'Actionable tips, to-do items',
+  cards: 'Rich media content with images',
+  table: 'Comparison data, structured information',
+  'simple-list': 'Default list display',
 }

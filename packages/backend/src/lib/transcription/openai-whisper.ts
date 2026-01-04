@@ -145,7 +145,7 @@ export class OpenAIWhisperProvider implements TranscriptionProvider {
       throw new Error(`OpenAI API error: ${response.status} - ${errorText}`)
     }
 
-    const result: WhisperResponse = await response.json()
+    const result = await response.json() as WhisperResponse
 
     console.log(
       `[openai-whisper] Transcription complete: ${result.text.length} chars, language: ${result.language}, duration: ${result.duration}s`

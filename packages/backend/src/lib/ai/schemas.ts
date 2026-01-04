@@ -1,6 +1,6 @@
 import { z } from 'zod'
-import type { Category, Tag, ContentType, ExtractedResource } from '@plukd/shared'
-import { CATEGORIES, TAGS, CONTENT_TYPES } from '@plukd/shared'
+import type { Category, Tag, ContentType, ExtractedResource, ResourceLayoutHint } from '@plukd/shared'
+import { CATEGORIES, TAGS, CONTENT_TYPES, RESOURCE_LAYOUT_HINTS } from '@plukd/shared'
 
 // Re-export from shared for backward compatibility
 export type { ContentType } from '@plukd/shared'
@@ -64,6 +64,15 @@ export const summarizationSchema = z.object({
     .array(extractedResourceSchema)
     .optional()
     .describe('For list-type content: all items/resources mentioned, extracted as structured data'),
+  resourceLayoutHint: z
+    .enum(RESOURCE_LAYOUT_HINTS as unknown as [ResourceLayoutHint, ...ResourceLayoutHint[]])
+    .optional()
+    .describe(
+      'Suggested layout for displaying extracted resources: ' +
+        'numbered-steps (sequential guides), grid (tools/products), ' +
+        'accordion (grouped by category), checklist (actionable tips), ' +
+        'cards (rich media), table (comparison data), simple-list (default)'
+    ),
 })
 
 export type SummarizationResult = z.infer<typeof summarizationSchema>
@@ -81,4 +90,5 @@ export interface TwoPassProcessingResult {
   blurb: string
   summary: string
   extractedResources?: ExtractedResource[]
+  resourceLayoutHint?: ResourceLayoutHint
 }

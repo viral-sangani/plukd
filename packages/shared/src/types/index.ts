@@ -72,6 +72,16 @@ export type ProcessingStatus = 'pending' | 'processing' | 'completed' | 'failed'
 // Content type for AI classification
 export type ContentType = 'thread' | 'article' | 'video' | 'discussion' | 'announcement' | 'list' | 'other'
 
+// Resource layout hint for displaying extracted resources
+export type ResourceLayoutHint =
+  | 'numbered-steps'
+  | 'grid'
+  | 'accordion'
+  | 'checklist'
+  | 'cards'
+  | 'table'
+  | 'simple-list'
+
 // Extracted resource from list-type content
 export interface ExtractedResource {
   name: string
@@ -97,9 +107,11 @@ export interface Bookmark {
   summary: string
   content_type: ContentType | null
   extracted_resources: ExtractedResource[] | null
+  resource_layout_hint: ResourceLayoutHint | null
   processing_status: ProcessingStatus
   processing_error: string | null
   raw_metadata: Record<string, unknown> | null
+  is_archived: boolean
   created_at: string
   updated_at: string
 }
@@ -240,11 +252,13 @@ export interface ProcessingResult {
   summary: string
   contentType: ContentType
   extractedResources?: ExtractedResource[]
+  resourceLayoutHint?: ResourceLayoutHint
 }
 
 // API response types
 export interface BookmarkCounts {
   total: number
+  archived: number
   bySource: {
     twitter: number
     reddit: number
@@ -272,6 +286,7 @@ export interface BookmarkListParams {
   tags?: Tag[]
   source?: ContentSource
   search?: string
+  archived?: boolean
   sortBy?: 'created_at' | 'title'
   sortOrder?: 'asc' | 'desc'
 }

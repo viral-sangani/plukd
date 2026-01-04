@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import Image from "next/image"
-import { usePathname } from "next/navigation"
+import { usePathname, useSearchParams } from "next/navigation"
 import {
   Bookmark,
   Twitter,
@@ -16,6 +16,7 @@ import {
   ChevronsUpDown,
   LogOut,
   Settings,
+  Archive,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -191,13 +192,15 @@ function LogoHeader() {
 
 interface SidebarContentProps {
   pathname: string
+  searchQuery: string
   user: User | null
   counts: BookmarkCounts | null
   isLoading?: boolean
   onNavClick?: () => void
 }
 
-function SidebarContent({ pathname, user, counts, isLoading = false, onNavClick }: SidebarContentProps) {
+function SidebarContent({ pathname, searchQuery, user, counts, isLoading = false, onNavClick }: SidebarContentProps) {
+  const isArchivedActive = pathname === "/" && searchQuery.includes("archived=true")
   return (
     <div className="flex flex-col h-full">
       {/* Navigation */}
@@ -210,7 +213,7 @@ function SidebarContent({ pathname, user, counts, isLoading = false, onNavClick 
               icon={Bookmark}
               label="All Bookmarks"
               count={counts?.total ?? 0}
-              isActive={pathname === "/"}
+              isActive={pathname === "/" && !isArchivedActive}
               onClick={onNavClick}
             />
           </div>
@@ -238,6 +241,18 @@ function SidebarContent({ pathname, user, counts, isLoading = false, onNavClick 
                 )
               })}
             </nav>
+          </div>
+
+          {/* Archived */}
+          <div className="pt-4 border-t border-[#27272a]">
+            <NavItem
+              href="/?archived=true"
+              icon={Archive}
+              label="Archived"
+              count={counts?.archived ?? 0}
+              isActive={isArchivedActive}
+              onClick={onNavClick}
+            />
           </div>
 
           {/* Settings */}
@@ -272,6 +287,8 @@ interface SidebarProps {
 
 export function Sidebar({ className }: SidebarProps) {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const searchQuery = searchParams.toString()
   const [open, setOpen] = useState(false)
   const [user, setUser] = useState<User | null>(null)
   const [counts, setCounts] = useState<BookmarkCounts | null>(null)
@@ -345,7 +362,7 @@ export function Sidebar({ className }: SidebarProps) {
           >
             {/* Logo in mobile sheet */}
             <LogoHeader />
-            <SidebarContent pathname={pathname} user={user} counts={counts} isLoading={isLoading} onNavClick={closeSheet} />
+            <SidebarContent pathname={pathname} searchQuery={searchQuery} user={user} counts={counts} isLoading={isLoading} onNavClick={closeSheet} />
           </SheetContent>
         </Sheet>
         <div className="flex items-center gap-2">
@@ -369,7 +386,7 @@ export function Sidebar({ className }: SidebarProps) {
       >
         {/* Logo/Brand */}
         <LogoHeader />
-        <SidebarContent pathname={pathname} user={user} counts={counts} isLoading={isLoading} />
+        <SidebarContent pathname={pathname} searchQuery={searchQuery} user={user} counts={counts} isLoading={isLoading} />
       </aside>
     </>
   )

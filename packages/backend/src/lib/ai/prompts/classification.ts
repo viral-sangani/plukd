@@ -1,5 +1,5 @@
 import type { ExtractedContent, ContentSource, ContentType } from '@plukd/shared'
-import { CATEGORIES, TAGS, CONTENT_TYPES } from '@plukd/shared'
+import { CATEGORIES, TAGS } from '@plukd/shared'
 
 // Re-export ContentType from shared for backward compatibility
 export type { ContentType } from '@plukd/shared'
@@ -21,6 +21,62 @@ interface ClassificationInput {
   url: string
   source: ContentSource
   content: string // truncated to 2000 chars
+}
+
+/**
+ * Trusted domains for image URLs.
+ * Only images from these domains will be included in multimodal prompts.
+ */
+const TRUSTED_IMAGE_DOMAINS = [
+  'pbs.twimg.com',
+  'abs.twimg.com',
+  'video.twimg.com',
+  'i.redd.it',
+  'i.imgur.com',
+  'imgur.com',
+  'preview.redd.it',
+  'external-preview.redd.it',
+  'instagram.com',
+  'cdninstagram.com',
+  'scontent.cdninstagram.com',
+  'scontent-',
+  'i.ytimg.com',
+  'img.youtube.com',
+  'media.licdn.com',
+  'static.licdn.com',
+]
+
+/**
+ * Maximum number of images to include in multimodal prompts.
+ * Limits token usage and processing time.
+ */
+const MAX_IMAGES = 4
+
+/**
+ * Check if a URL is from a trusted image domain.
+ */
+function isTrustedImageUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    return TRUSTED_IMAGE_DOMAINS.some(
+      (domain) =>
+        parsed.hostname === domain || parsed.hostname.includes(domain)
+    )
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Filter and limit image URLs to trusted domains.
+ * Returns up to MAX_IMAGES URLs from trusted sources.
+ */
+export function getValidImageUrls(mediaUrls?: string[]): string[] {
+  if (!mediaUrls || mediaUrls.length === 0) {
+    return []
+  }
+
+  return mediaUrls.filter(isTrustedImageUrl).slice(0, MAX_IMAGES)
 }
 
 /**
@@ -46,13 +102,31 @@ function getSourceHints(source: ContentSource): string {
 }
 
 /**
+ * Get image analysis instructions for classification
+ */
+function getImageAnalysisHints(): string {
+  return `
+IMAGE ANALYSIS:
+- This content includes images. Analyze them for:
+  - Text content (screenshots, infographics, guides)
+  - Code snippets or technical diagrams
+  - Data visualizations or charts
+- Consider image content when determining category and tags
+- If image contains a list/guide, consider "list" content type`
+}
+
+/**
  * Builds the classification prompt for Pass 1 (Flash model).
  * Designed to be concise for quick categorization.
  *
  * @param content - Extracted content with truncated text (2000 chars max)
+ * @param hasImages - Whether the content includes images for multimodal analysis
  * @returns Prompt string for classification
  */
-export function buildClassificationPrompt(content: ExtractedContent): string {
+export function buildClassificationPrompt(
+  content: ExtractedContent,
+  hasImages?: boolean
+): string {
   const categoryList = CATEGORIES.join(', ')
   const tagList = TAGS.join(', ')
   const sourceHints = getSourceHints(content.source)
@@ -66,6 +140,8 @@ export function buildClassificationPrompt(content: ExtractedContent): string {
     source: content.source,
     content: truncatedContent,
   }
+
+  const imageHints = hasImages ? getImageAnalysisHints() : ''
 
   return `Classify this ${input.source} content for a bookmarking app.
 
@@ -89,6 +165,7 @@ thread, article, video, discussion, announcement, list, other
 
 Hints:
 ${sourceHints}
+${imageHints}
 
 CONTENT TYPE DEFINITIONS:
 - thread: connected posts/tweets forming a narrative

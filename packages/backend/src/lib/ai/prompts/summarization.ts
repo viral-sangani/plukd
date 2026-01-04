@@ -1,4 +1,4 @@
-import type { ExtractedContent, ContentSource, ExtractedResource, ContentType } from '@plukd/shared'
+import type { ExtractedContent, ContentSource, ExtractedResource, ContentType, ResourceLayoutHint } from '@plukd/shared'
 import type { ClassificationResult } from './classification'
 
 /**
@@ -8,6 +8,7 @@ export interface SummarizationResult {
   blurb: string // 2-3 sentences, 50-200 chars
   summary: string // bullet points with **bold** emphasis, 300-1200 chars
   extractedResources?: ExtractedResource[] // Only for list content type
+  resourceLayoutHint?: ResourceLayoutHint // Suggested layout for displaying extracted resources
 }
 
 /**
@@ -65,12 +66,19 @@ function getContentTypeInstructions(
 You MUST:
 - Extract EVERY item mentioned (all 10, 15, 25+ items - do NOT skip any)
 - For each item: name (required), description (1-2 sentences), category (book/tool/movie/app/etc.), URL if mentioned
-- Do NOT summarize the items - extract them ALL
-- Do NOT limit yourself to 5-10 items - get every single one mentioned
+- Determine the best LAYOUT for displaying these resources:
+  - "numbered-steps": Sequential guides, step-by-step tutorials, ordered processes
+  - "grid": Tools, apps, products that benefit from visual/icon display
+  - "accordion": Resources naturally grouped by categories (e.g., "Books" section, "Tools" section)
+  - "checklist": Actionable tips, best practices users might want to track completion
+  - "cards": Rich media content like movies, TV shows, books, podcasts with ratings/metadata
+  - "table": Comparison data, specs, pricing, features across multiple items
+  - "simple-list": Default when no clear pattern or mixed content
 
 The blurb should describe what the list is about.
 The summary should give a meta-overview of the collection.
-The extracted_resources field MUST contain all individual items as structured data.`,
+The extracted_resources field MUST contain all individual items.
+The resourceLayoutHint field MUST specify the best display layout.`,
 
     other: `Summarize this content comprehensively:
 - Identify and explain the main purpose
@@ -115,6 +123,21 @@ If the content contains recommendations or lists (movies, books, products, tools
 }
 
 /**
+ * Get image analysis instructions for summarization
+ */
+function getImageAnalysisInstructions(): string {
+  return `
+IMAGE CONTENT ANALYSIS:
+- Carefully analyze all images for informational content
+- Extract text from infographics, screenshots, and guides
+- Include key points from images in your summary
+- If images contain lists (books, tools, resources, steps):
+  - Extract each item to extractedResources
+  - Include names, descriptions where visible
+- Describe visual content that adds context (charts, diagrams)`
+}
+
+/**
  * Check if content extraction effectively failed
  * (content is empty, minimal, or just a placeholder)
  */
@@ -137,11 +160,13 @@ function isExtractionFailed(content: ExtractedContent): boolean {
  *
  * @param content - Extracted content with full text (up to 8000 chars)
  * @param classification - Results from Pass 1 classification
+ * @param hasImages - Whether the content includes images for multimodal analysis
  * @returns Prompt string for summarization
  */
 export function buildSummarizationPrompt(
   content: ExtractedContent,
-  classification: ClassificationResult
+  classification: ClassificationResult,
+  hasImages?: boolean
 ): string {
   // Check if extraction failed - return simple fallback prompt
   if (isExtractionFailed(content)) {
@@ -176,6 +201,8 @@ Respond in JSON only:
     content.source
   )
 
+  const imageInstructions = hasImages ? getImageAnalysisInstructions() : ''
+
   const input: SummarizationInput = {
     title: content.title,
     url: content.url,
@@ -203,6 +230,7 @@ ${input.content}${content.content.length > 8000 ? '...(truncated)' : ''}
 ${repliesSection}${transcriptSection}
 
 ${contentTypeInstructions}
+${imageInstructions}
 
 Create TWO outputs:
 
@@ -237,8 +265,12 @@ ${classification.contentType === 'list' ? `
 - Include URLs only if explicitly mentioned in content
 - Do NOT skip any items - extract ALL of them
 
+4. RESOURCE_LAYOUT_HINT (REQUIRED for list content):
+- Choose the best layout: numbered-steps, grid, accordion, checklist, cards, table, or simple-list
+- Match the layout to the content type (e.g., cards for movies, grid for tools)
+
 Respond in JSON only:
-{"blurb":"...","summary":"...","extractedResources":[{"name":"...","description":"...","category":"...","url":"..."}]}` : `
+{"blurb":"...","summary":"...","extractedResources":[{"name":"...","description":"...","category":"...","url":"..."}],"resourceLayoutHint":"..."}` : `
 Respond in JSON only:
 {"blurb":"...","summary":"..."}`}`
 }

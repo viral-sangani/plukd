@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Check, ChevronDown, X, SlidersHorizontal } from 'lucide-react'
+import { Check, ChevronDown, X, SlidersHorizontal, Archive } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -37,15 +37,18 @@ export interface BookmarkFiltersState {
   category: Category | null
   source: ContentSource | null
   status: ProcessingStatus | null
+  showArchived: boolean
 }
 
 interface BookmarkFiltersProps {
   selectedCategory: Category | null
   selectedSource: ContentSource | null
   selectedStatus: ProcessingStatus | null
+  showArchived: boolean
   onCategoryChange: (category: Category | null) => void
   onSourceChange: (source: ContentSource | null) => void
   onStatusChange: (status: ProcessingStatus | null) => void
+  onShowArchivedChange: (show: boolean) => void
   onClearAll: () => void
   className?: string
 }
@@ -152,9 +155,11 @@ export function BookmarkFilters({
   selectedCategory,
   selectedSource,
   selectedStatus,
+  showArchived,
   onCategoryChange,
   onSourceChange,
   onStatusChange,
+  onShowArchivedChange,
   onClearAll,
   className,
 }: BookmarkFiltersProps) {
@@ -202,6 +207,21 @@ export function BookmarkFilters({
           onChange={onStatusChange}
           placeholder="Search status..."
         />
+
+        {/* Show Archived Toggle */}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => onShowArchivedChange(!showArchived)}
+          className={cn(
+            'h-8 border-border-subtle bg-background-muted hover:bg-background-emphasis',
+            'text-foreground-secondary hover:text-foreground gap-1.5',
+            showArchived && 'border-accent text-foreground bg-accent/10'
+          )}
+        >
+          <Archive className="size-3.5" />
+          {showArchived ? 'Showing Archived' : 'Show Archived'}
+        </Button>
       </div>
 
       {/* Mobile Filters */}
@@ -314,6 +334,25 @@ export function BookmarkFilters({
                     </Button>
                   ))}
                 </div>
+              </div>
+
+              {/* Show Archived */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-mono uppercase tracking-[0.15em] text-foreground-muted">
+                  Archive
+                </label>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onShowArchivedChange(!showArchived)}
+                  className={cn(
+                    'h-8 border-border-subtle gap-1.5',
+                    showArchived && 'border-accent bg-accent/10 text-foreground'
+                  )}
+                >
+                  <Archive className="size-3.5" />
+                  {showArchived ? 'Showing Archived' : 'Show Archived'}
+                </Button>
               </div>
 
               {/* Actions */}

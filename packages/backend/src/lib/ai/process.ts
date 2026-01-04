@@ -1,8 +1,13 @@
 import { google } from '@ai-sdk/google'
 import { generateObject } from 'ai'
+import type { ModelMessage, ImagePart, TextPart } from 'ai'
 
 import type { ExtractedContent, ProcessingResult } from '@plukd/shared'
-import { buildClassificationPrompt, buildSummarizationPrompt } from './prompts'
+import {
+  buildClassificationPrompt,
+  buildSummarizationPrompt,
+  getValidImageUrls,
+} from './prompts'
 import {
   classificationSchema,
   summarizationSchema,
@@ -11,12 +16,45 @@ import {
 } from './schemas'
 
 /**
+ * Build a multimodal message with text and optional images.
+ * Uses the Vercel AI SDK message format for generateObject.
+ *
+ * @param text - The text prompt
+ * @param imageUrls - Optional array of validated image URLs
+ * @returns A ModelMessage array with multimodal content
+ */
+function buildMultimodalMessage(
+  text: string,
+  imageUrls: string[]
+): ModelMessage[] {
+  const content: (TextPart | ImagePart)[] = [{ type: 'text', text }]
+
+  // Add image parts for each valid URL
+  for (const url of imageUrls) {
+    try {
+      content.push({
+        type: 'image',
+        image: new URL(url),
+      })
+    } catch {
+      // Skip invalid URLs silently
+      console.warn(`[AI] Skipping invalid image URL: ${url}`)
+    }
+  }
+
+  return [{ role: 'user', content }]
+}
+
+/**
  * Pass 1: Classify content using Gemini Flash.
  *
  * Uses a fast, efficient model to determine:
  * - Category: The primary topic/domain of the content
  * - Tags: Descriptive labels for content format and type
  * - Content Type: The structural format of the content
+ *
+ * Supports multimodal content: when images are present in the extracted
+ * content, they are included in the prompt for visual analysis.
  *
  * @param content - The extracted content from a URL
  * @returns Classification result with category, tags, and contentType
@@ -33,8 +71,27 @@ import {
 export async function classifyContent(
   content: ExtractedContent
 ): Promise<ClassificationResult> {
-  const prompt = buildClassificationPrompt(content)
+  // Get valid image URLs from trusted domains (limited to 4)
+  const imageUrls = getValidImageUrls(content.mediaUrls)
+  const hasImages = imageUrls.length > 0
 
+  // Build prompt with image context hint
+  const prompt = buildClassificationPrompt(content, hasImages)
+
+  // Use multimodal messages if images are present
+  if (hasImages) {
+    const messages = buildMultimodalMessage(prompt, imageUrls)
+
+    const { object } = await generateObject({
+      model: google('gemini-3-flash-preview'),
+      schema: classificationSchema,
+      messages,
+    })
+
+    return object
+  }
+
+  // Fall back to simple prompt for text-only content
   const { object } = await generateObject({
     model: google('gemini-3-flash-preview'),
     schema: classificationSchema,
@@ -50,6 +107,10 @@ export async function classifyContent(
  * Uses a more capable model for high-quality, nuanced summarization.
  * Receives classification results from Pass 1 to tailor the summary
  * based on content type and category.
+ *
+ * Supports multimodal content: when images are present in the extracted
+ * content, they are included in the prompt for visual analysis. This is
+ * especially useful for infographics, guides, and image-based lists.
  *
  * @param content - The extracted content from a URL
  * @param classification - Results from Pass 1 classification
@@ -68,8 +129,27 @@ export async function summarizeContent(
   content: ExtractedContent,
   classification: ClassificationResult
 ): Promise<SummarizationResult> {
-  const prompt = buildSummarizationPrompt(content, classification)
+  // Get valid image URLs from trusted domains (limited to 4)
+  const imageUrls = getValidImageUrls(content.mediaUrls)
+  const hasImages = imageUrls.length > 0
 
+  // Build prompt with image context hint
+  const prompt = buildSummarizationPrompt(content, classification, hasImages)
+
+  // Use multimodal messages if images are present
+  if (hasImages) {
+    const messages = buildMultimodalMessage(prompt, imageUrls)
+
+    const { object } = await generateObject({
+      model: google('gemini-3-pro-preview'),
+      schema: summarizationSchema,
+      messages,
+    })
+
+    return object
+  }
+
+  // Fall back to simple prompt for text-only content
   const { object } = await generateObject({
     model: google('gemini-3-pro-preview'),
     schema: summarizationSchema,
@@ -125,6 +205,7 @@ export async function processContent(
     summary: summarization.summary,
     contentType: classification.contentType,
     extractedResources: summarization.extractedResources,
+    resourceLayoutHint: summarization.resourceLayoutHint,
   }
 }
 
