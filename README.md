@@ -4,7 +4,7 @@ A personal bookmarking application that saves links via Telegram bot, automatica
 
 **Live:** [plukd.xyz](https://plukd.xyz)
 
-## Features
+## Features ok plukd.xyz
 
 - **Telegram Bot Integration** - Save bookmarks by sending links to [@PlukdBot](https://t.me/PlukdBot)
 - **AI-Powered Processing** - Automatic categorization, tagging, and summarization using Google Gemini
