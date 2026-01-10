@@ -1,0 +1,24 @@
+{
+    "extends": "./.wxt/tsconfig.json",
+    "compilerOptions": {
+        "moduleResolution": "bundler",
+        "strict": true,
+        "noImplicitAny": false, // Easier migration
+        "target": "ESNext",
+        "module": "ESNext",
+        "skipLibCheck": true,
+        "jsx": "react-jsx",
+        "baseUrl": ".",
+        "paths": {
+            "@/*": [
+                "./*"
+            ],
+            "@/components/*": [
+                "./components/*"
+            ],
+            "@/lib/*": [
+                "./lib/*"
+            ]
+        }
+    }
+}

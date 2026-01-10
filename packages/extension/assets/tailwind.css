@@ -1,0 +1,50 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Plukd Design System - Dark theme colors */
+    --background: 0 0% 3.1%; /* #080808 */
+    --foreground: 0 0% 98%; /* #fafafa */
+    --card: 0 0% 3.1%; /* #080808 */
+    --card-foreground: 0 0% 98%;
+    --popover: 0 0% 7.1%; /* #121212 */
+    --popover-foreground: 0 0% 98%;
+    --primary: 9 79% 53%; /* #e84326 - Plukd coral accent */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 10.2%; /* #1a1a1a */
+    --secondary-foreground: 0 0% 98%;
+    --muted: 0 0% 10.2%; /* #1a1a1a */
+    --muted-foreground: 240 4% 46%; /* #71717a */
+    --accent: 9 79% 53%; /* #e84326 - Plukd coral accent */
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84% 60%; /* #ef4444 */
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 12.2%; /* #1f1f1f */
+    --input: 0 0% 10.2%; /* #1a1a1a */
+    --ring: 9 79% 53%; /* #e84326 */
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply tw-border-border;
+  }
+  body {
+    margin: 0;
+    padding: 0;
+    @apply tw-bg-background tw-text-foreground;
+  }
+}
+
+/* Custom Base Reset for Popup since preflight is disabled globally */
+*,
+::before,
+::after {
+    box-sizing: border-box;
+    border-width: 0;
+    border-style: solid;
+    border-color: hsl(var(--border));
+}

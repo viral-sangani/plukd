@@ -1,0 +1,151 @@
+/* Plukd Design System for Twitter Extension */
+
+/* Inline Panel Styles - Plukd card style */
+.tw-ai-inline-panel {
+  max-width: 600px;
+  background: #080808;
+  border: 1px solid #1f1f1f;
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  font-family: ui-monospace, SFMono-Regular, 'Roboto Mono', Menlo, Monaco, monospace;
+}
+
+/* Tone Button Styles - Plukd outline style with no radius */
+.tw-tone-btn {
+  padding: 8px 16px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 0; /* Plukd uses no radius */
+  border: 1px solid #1f1f1f;
+  background: transparent;
+  color: #ababab;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: ui-monospace, SFMono-Regular, 'Roboto Mono', Menlo, Monaco, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.tw-tone-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #e84326;
+  border-color: #e84326;
+}
+
+.tw-tone-btn.tw-selected {
+  background: #e84326;
+  color: #ffffff;
+  border-color: #e84326;
+}
+
+/* Generate Button Styles - Plukd accent button */
+.tw-btn-generate {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 0;
+  background: #e84326;
+  padding: 10px 16px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #ffffff;
+  transition: all 0.15s;
+  box-shadow: 0 2px 8px rgba(232, 67, 38, 0.3);
+  font-family: ui-monospace, SFMono-Regular, 'Roboto Mono', Menlo, Monaco, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border: none;
+}
+
+.tw-btn-generate:hover {
+  background: #d63920;
+  box-shadow: 0 4px 12px rgba(232, 67, 38, 0.4);
+}
+
+.tw-btn-generate:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.tw-btn-generate:disabled:hover {
+  background: #e84326;
+}
+
+/* Secondary Button (Settings, Close) - Plukd outline style */
+.tw-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0;
+  border: 1px solid #1f1f1f;
+  background: transparent;
+  padding: 8px 12px;
+  color: #ababab;
+  transition: all 0.15s;
+}
+
+.tw-btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #fafafa;
+  border-color: #2a2a2a;
+}
+
+/* Toggle Button Active State - Plukd accent */
+.tw-ai-reply-toggle[aria-expanded="true"] {
+  background: #080808;
+  color: #e84326;
+  border-color: #e84326;
+}
+
+/* AI Button (Twitter inject) - Plukd Style */
+.tw-ai-reply-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 0;
+  padding: 8px 14px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #ababab;
+  background: #080808;
+  border: 1px solid #1f1f1f;
+  transition: all 0.15s;
+  font-family: ui-monospace, SFMono-Regular, 'Roboto Mono', Menlo, Monaco, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.tw-ai-reply-toggle:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #e84326;
+  border-color: #e84326;
+}
+
+/* Labels - Plukd monospace style */
+.tw-ai-inline-panel label {
+  font-size: 10px;
+  font-weight: 500;
+  color: #71717a;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  font-family: ui-monospace, SFMono-Regular, 'Roboto Mono', Menlo, Monaco, monospace;
+}
+
+/* Loading State */
+#ai-loading-state {
+  color: #ababab;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, 'Roboto Mono', Menlo, Monaco, monospace;
+}
+
+/* Error State */
+#ai-error-state {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #FCA5A5;
+  font-family: ui-monospace, SFMono-Regular, 'Roboto Mono', Menlo, Monaco, monospace;
+  font-size: 11px;
+}
