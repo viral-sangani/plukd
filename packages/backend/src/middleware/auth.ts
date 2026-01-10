@@ -31,6 +31,21 @@ export async function authMiddleware(c: Context, next: Next) {
 
   const token = authHeader.slice(7)
 
+  // Development mode: Accept mock token from extension
+  // This allows testing the extension without full Supabase authentication
+  if (env.NODE_ENV === 'development' && token === 'MOCK_DEV_TOKEN_FOR_TESTING') {
+    console.warn('[auth] ⚠️ Using mock token for development - DO NOT USE IN PRODUCTION')
+    const mockUser: AuthUser = {
+      id: 'mock-user-id-dev-only',
+      email: 'dev@plukd.local',
+      role: 'authenticated',
+      aud: 'authenticated',
+    }
+    c.set('user', mockUser)
+    await next()
+    return
+  }
+
   try {
     // Use JWKS to verify ES256 tokens from Supabase
     const { payload } = await jose.jwtVerify(token, PROJECT_JWKS, {

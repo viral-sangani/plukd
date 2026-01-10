@@ -2,6 +2,8 @@ import { Hono } from 'hono'
 import { bookmarksRoutes } from './bookmarks'
 import { telegramRoutes } from './telegram'
 import { userRoutes } from './user'
+import { aiReplyRoutes } from './ai-reply'
+import { extensionRoutes } from './extension'
 
 export const routes = new Hono()
 
@@ -18,3 +20,5 @@ routes.get('/health', (c) => {
 routes.route('/bookmarks', bookmarksRoutes)
 routes.route('/telegram', telegramRoutes)
 routes.route('/user', userRoutes)
+routes.route('/ai', aiReplyRoutes)
+routes.route('/extension', extensionRoutes)
