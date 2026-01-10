@@ -15,3 +15,11 @@ export {
   type UpdateBookmarkPayload,
   type DeleteBookmarkPayload,
 } from './use-bookmark-mutations'
+export {
+  useSemanticSearch,
+  useSemanticSearchAvailable,
+  semanticSearchQueryKey,
+  type SemanticSearchResult,
+  type SemanticSearchResponse,
+  type UseSemanticSearchParams,
+} from './use-semantic-search'

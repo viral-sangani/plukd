@@ -90,6 +90,15 @@ export interface ExtractedResource {
   category?: string // e.g., "book", "tool", "movie", "app"
 }
 
+// Key takeaway types for actionable items
+export type TakeawayType = 'action' | 'idea' | 'reminder' | 'reference'
+
+// Key takeaway extracted from content
+export interface KeyTakeaway {
+  text: string
+  type: TakeawayType
+}
+
 export interface Bookmark {
   id: string
   user_id: string
@@ -108,6 +117,7 @@ export interface Bookmark {
   content_type: ContentType | null
   extracted_resources: ExtractedResource[] | null
   resource_layout_hint: ResourceLayoutHint | null
+  key_takeaways: KeyTakeaway[] | null
   processing_status: ProcessingStatus
   processing_error: string | null
   raw_metadata: Record<string, unknown> | null
@@ -253,6 +263,7 @@ export interface ProcessingResult {
   contentType: ContentType
   extractedResources?: ExtractedResource[]
   resourceLayoutHint?: ResourceLayoutHint
+  keyTakeaways?: KeyTakeaway[]
 }
 
 // API response types

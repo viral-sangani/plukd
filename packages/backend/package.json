@@ -8,7 +8,8 @@
     "build": "bun build src/index.ts --outdir=dist --target=bun",
     "start": "bun run dist/index.js",
     "clean": "rm -rf dist",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "backfill-embeddings": "bun run scripts/backfill-embeddings.ts"
   },
   "dependencies": {
     "@ai-sdk/google": "^3.0.1",

@@ -1,6 +1,9 @@
 import { z } from 'zod'
-import type { Category, Tag, ContentType, ExtractedResource, ResourceLayoutHint } from '@plukd/shared'
+import type { Category, Tag, ContentType, ExtractedResource, ResourceLayoutHint, KeyTakeaway, TakeawayType } from '@plukd/shared'
 import { CATEGORIES, TAGS, CONTENT_TYPES, RESOURCE_LAYOUT_HINTS } from '@plukd/shared'
+
+// Takeaway types for validation
+const TAKEAWAY_TYPES = ['action', 'idea', 'reminder', 'reference'] as const
 
 // Re-export from shared for backward compatibility
 export type { ContentType } from '@plukd/shared'
@@ -38,11 +41,25 @@ export const extractedResourceSchema = z.object({
 })
 
 /**
+ * Schema for key takeaway (actionable item)
+ */
+export const keyTakeawaySchema = z.object({
+  text: z
+    .string()
+    .max(100)
+    .describe('Short, actionable takeaway (under 100 chars)'),
+  type: z
+    .enum(TAKEAWAY_TYPES)
+    .describe('Type of takeaway: action (try/do), idea (post/content), reminder (revisit), reference (keep)'),
+})
+
+/**
  * Schema for Pass 2: Summarization
  *
  * Uses Gemini Pro for high-quality, nuanced summarization:
  * - Blurb: A concise summary for list view display
  * - Summary: A detailed summary with key insights and takeaways
+ * - KeyTakeaways: 3-5 actionable items for quick reference
  * - ExtractedResources: Array of structured resources (for list-type content)
  */
 export const summarizationSchema = z.object({
@@ -60,6 +77,11 @@ export const summarizationSchema = z.object({
     .describe(
       'A concise bullet-point summary with **bold emphasis** on key phrases. 5-10 short bullet points, each 1-2 sentences max.'
     ),
+  keyTakeaways: z
+    .array(keyTakeawaySchema)
+    .min(3)
+    .max(5)
+    .describe('3-5 actionable takeaways: things to try, post ideas, things to remember, or useful references'),
   extractedResources: z
     .array(extractedResourceSchema)
     .optional()
@@ -78,10 +100,37 @@ export const summarizationSchema = z.object({
 export type SummarizationResult = z.infer<typeof summarizationSchema>
 
 /**
- * Combined result from both passes.
- * This is the final output of the two-pass AI processing pipeline.
+ * Schema for Pass 3: Dedicated List Extraction
+ *
+ * Uses Gemini Pro with FULL content (no truncation) for maximum extraction accuracy.
+ * Only runs for content classified as "list" type.
+ * Includes validation metadata for extraction completeness.
  */
-export interface TwoPassProcessingResult {
+export const listExtractionSchema = z.object({
+  totalItemsMentioned: z
+    .number()
+    .int()
+    .min(0)
+    .describe('Total number of distinct items/resources mentioned in the content'),
+  extractedResources: z
+    .array(extractedResourceSchema)
+    .min(1)
+    .describe('All items/resources extracted from the content'),
+  resourceLayoutHint: z
+    .enum(RESOURCE_LAYOUT_HINTS as unknown as [ResourceLayoutHint, ...ResourceLayoutHint[]])
+    .describe('Best layout for displaying these resources'),
+  extractionConfidence: z
+    .enum(['complete', 'partial', 'uncertain'])
+    .describe('Confidence in extraction completeness: complete (all items found), partial (some may be missing), uncertain (difficult to determine)'),
+})
+
+export type ListExtractionResult = z.infer<typeof listExtractionSchema>
+
+/**
+ * Combined result from all passes.
+ * This is the final output of the multi-pass AI processing pipeline.
+ */
+export interface MultiPassProcessingResult {
   // From Pass 1 (Classification)
   category: Category
   tags: Tag[]
@@ -89,6 +138,13 @@ export interface TwoPassProcessingResult {
   // From Pass 2 (Summarization)
   blurb: string
   summary: string
+  keyTakeaways?: KeyTakeaway[]
+  // From Pass 2 or Pass 3 (whichever extracted more)
   extractedResources?: ExtractedResource[]
   resourceLayoutHint?: ResourceLayoutHint
 }
+
+/**
+ * @deprecated Use MultiPassProcessingResult instead
+ */
+export interface TwoPassProcessingResult extends MultiPassProcessingResult {}

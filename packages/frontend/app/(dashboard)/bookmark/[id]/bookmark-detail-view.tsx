@@ -7,6 +7,8 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { SourceBadge } from '@/components/ui/source-badge'
 import { CategoryBadge } from '@/components/ui/category-badge'
+import { KeyTakeaways } from '@/components/bookmarks/key-takeaways'
+import { ResourceList } from '@/components/bookmarks/resource-list'
 import { TAG_LABELS } from '@plukd/shared'
 import type { Bookmark, RawMetadata } from '@plukd/shared'
 
@@ -133,6 +135,19 @@ export function BookmarkDetailView({ bookmark }: BookmarkDetailViewProps) {
               </p>
             </div>
           </section>
+        )}
+
+        {/* Key Takeaways Section */}
+        {bookmark.key_takeaways && bookmark.key_takeaways.length > 0 && (
+          <KeyTakeaways takeaways={bookmark.key_takeaways} />
+        )}
+
+        {/* Extracted Resources Section */}
+        {bookmark.extracted_resources && bookmark.extracted_resources.length > 0 && (
+          <ResourceList
+            resources={bookmark.extracted_resources}
+            layoutHint={bookmark.resource_layout_hint}
+          />
         )}
 
         {/* Metadata Section */}

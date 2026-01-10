@@ -53,6 +53,97 @@ const TRUSTED_IMAGE_DOMAINS = [
 const MAX_IMAGES = 4
 
 /**
+ * Content truncation limits for classification
+ */
+const CLASSIFICATION_LIMIT_DEFAULT = 2000
+const CLASSIFICATION_LIMIT_LIST = 4000
+
+/**
+ * Result of list indicator detection
+ */
+export interface ListIndicators {
+  isLikelyList: boolean
+  estimatedItemCount: number
+  confidence: 'high' | 'medium' | 'low'
+  patterns: string[]
+}
+
+/**
+ * Detects list-like patterns in content to improve classification accuracy.
+ * Scans full content before truncation to catch list indicators that might be cut off.
+ *
+ * @param content - Full content text (including transcript if available)
+ * @returns Detection result with estimated item count and confidence
+ */
+export function detectListIndicators(content: string): ListIndicators {
+  const fullContent = content.toLowerCase()
+  const patterns: string[] = []
+
+  // Pattern 1: Numbered items (1. item, 2) item, #1 item)
+  const numberedMatches = fullContent.match(/(?:^|\n)\s*(?:\d+[\.\):]|\#\d+)\s+[a-z]/gm) || []
+  if (numberedMatches.length >= 3) patterns.push('numbered-items')
+
+  // Pattern 2: Bullet points (-, *, •)
+  const bulletMatches = fullContent.match(/(?:^|\n)\s*[-•*]\s+[a-z]/gm) || []
+  if (bulletMatches.length >= 3) patterns.push('bullet-points')
+
+  // Pattern 3: Ordinal words (first, second, third, etc.)
+  const ordinalPattern = /\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|next|another|finally|lastly)\b/gi
+  const ordinalMatches = fullContent.match(ordinalPattern) || []
+  if (ordinalMatches.length >= 3) patterns.push('ordinal-words')
+
+  // Pattern 4: List phrases ("top 10", "best 5", "7 tools", etc.)
+  const listPhrasePattern = /\b(top\s+\d+|\d+\s+best|best\s+\d+|\d+\s+ways|\d+\s+tips|\d+\s+things|\d+\s+tools|\d+\s+apps|\d+\s+books|\d+\s+movies|\d+\s+shows|my\s+favorite\s+\d+|must[\s-]have|must[\s-]watch|must[\s-]read)\b/gi
+  const listPhraseMatches = fullContent.match(listPhrasePattern) || []
+  if (listPhraseMatches.length > 0) patterns.push('list-phrases')
+
+  // Pattern 5: Recommendation verbs clustered together
+  const recommendPattern = /\b(recommend|suggesting|check\s+out|try\s+this|use\s+this|watch\s+this|read\s+this|here(?:'s|s)\s+my|here\s+are)\b/gi
+  const recommendMatches = fullContent.match(recommendPattern) || []
+  if (recommendMatches.length >= 2) patterns.push('recommendation-verbs')
+
+  // Pattern 6: Extract explicit count from title/content (e.g., "7 best AI tools")
+  const explicitCountMatch = fullContent.match(/\b(\d+)\s+(?:best|top|favorite|must|essential|amazing|incredible|awesome)\b/i)
+  const explicitCount = explicitCountMatch ? parseInt(explicitCountMatch[1], 10) : 0
+
+  // Estimate item count from patterns
+  const estimatedFromPatterns = Math.max(
+    numberedMatches.length,
+    bulletMatches.length,
+    Math.floor(ordinalMatches.length * 1.5) // Ordinals often don't cover all items
+  )
+
+  // Use explicit count if mentioned, otherwise use pattern-based estimate
+  const estimatedItemCount = explicitCount > 0 ? explicitCount : estimatedFromPatterns
+
+  // Determine if likely a list and confidence level
+  const patternCount = patterns.length
+  let isLikelyList = false
+  let confidence: 'high' | 'medium' | 'low' = 'low'
+
+  if (patterns.includes('list-phrases') || explicitCount >= 3) {
+    // Explicit list phrases or counts are strong indicators
+    isLikelyList = true
+    confidence = 'high'
+  } else if (patternCount >= 2 || estimatedFromPatterns >= 5) {
+    // Multiple pattern types or many items found
+    isLikelyList = true
+    confidence = 'medium'
+  } else if (patternCount === 1 && estimatedFromPatterns >= 3) {
+    // Single pattern type but enough items
+    isLikelyList = true
+    confidence = 'low'
+  }
+
+  return {
+    isLikelyList,
+    estimatedItemCount,
+    confidence,
+    patterns,
+  }
+}
+
+/**
  * Check if a URL is from a trusted image domain.
  */
 function isTrustedImageUrl(url: string): boolean {
@@ -118,21 +209,36 @@ IMAGE ANALYSIS:
 /**
  * Builds the classification prompt for Pass 1 (Flash model).
  * Designed to be concise for quick categorization.
+ * Uses adaptive truncation - more content for likely list content.
  *
- * @param content - Extracted content with truncated text (2000 chars max)
+ * @param content - Extracted content
  * @param hasImages - Whether the content includes images for multimodal analysis
+ * @param listIndicators - Optional pre-computed list indicators for adaptive truncation
  * @returns Prompt string for classification
  */
 export function buildClassificationPrompt(
   content: ExtractedContent,
-  hasImages?: boolean
+  hasImages?: boolean,
+  listIndicators?: ListIndicators
 ): string {
   const categoryList = CATEGORIES.join(', ')
   const tagList = TAGS.join(', ')
   const sourceHints = getSourceHints(content.source)
 
-  // Truncate content to 2000 chars for classification
-  const truncatedContent = content.content.slice(0, 2000)
+  // Combine content with transcript for list detection if not already computed
+  const fullText = content.content + (content.transcript ? `\n\n${content.transcript}` : '')
+  const indicators = listIndicators ?? detectListIndicators(fullText)
+
+  // Use adaptive truncation - more content for likely list content
+  const truncationLimit = indicators.isLikelyList
+    ? CLASSIFICATION_LIMIT_LIST
+    : CLASSIFICATION_LIMIT_DEFAULT
+  const truncatedContent = content.content.slice(0, truncationLimit)
+
+  // Add list detection hint if detected
+  const listDetectionHint = indicators.isLikelyList
+    ? `\nLIST DETECTION: Content appears to contain a list with ~${indicators.estimatedItemCount} items (${indicators.confidence} confidence). Consider using "list" content type.`
+    : ''
 
   const input: ClassificationInput = {
     title: content.title,
@@ -165,7 +271,7 @@ thread, article, video, discussion, announcement, list, other
 
 Hints:
 ${sourceHints}
-${imageHints}
+${imageHints}${listDetectionHint}
 
 CONTENT TYPE DEFINITIONS:
 - thread: connected posts/tweets forming a narrative
@@ -183,13 +289,26 @@ Respond in JSON only:
 }
 
 /**
- * Prepares content for classification by truncating to appropriate length
+ * Prepares content for classification by truncating to appropriate length.
+ * Uses adaptive truncation based on list indicators.
+ *
+ * @param content - Full extracted content
+ * @param listIndicators - Optional pre-computed list indicators
+ * @returns Content with appropriately truncated text
  */
 export function prepareForClassification(
-  content: ExtractedContent
+  content: ExtractedContent,
+  listIndicators?: ListIndicators
 ): ExtractedContent {
+  const fullText = content.content + (content.transcript ? `\n\n${content.transcript}` : '')
+  const indicators = listIndicators ?? detectListIndicators(fullText)
+
+  const truncationLimit = indicators.isLikelyList
+    ? CLASSIFICATION_LIMIT_LIST
+    : CLASSIFICATION_LIMIT_DEFAULT
+
   return {
     ...content,
-    content: content.content.slice(0, 2000),
+    content: content.content.slice(0, truncationLimit),
   }
 }

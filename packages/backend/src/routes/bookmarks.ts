@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { authMiddleware } from '../middleware/auth'
 import { supabaseAdmin } from '../config/supabase'
 import { enqueueBookmarkProcessing } from '../jobs/queue'
+import { generateQueryEmbedding, formatEmbeddingForPostgres } from '../lib/ai/embeddings'
 import {
   detectSource,
   isTitleBad,
@@ -354,6 +355,90 @@ bookmarksRoutes.get('/counts', async (c) => {
     })
   } catch (error) {
     console.error('[bookmarks] Error in counts:', error)
+    return c.json({ error: 'Internal server error' }, 500)
+  }
+})
+
+// Semantic search query schema
+const semanticSearchSchema = z.object({
+  q: z.string().min(2, 'Query must be at least 2 characters'),
+  limit: z.coerce.number().int().positive().max(50).default(10),
+  threshold: z.coerce.number().min(0).max(1).default(0.7),
+  includeArchived: z.preprocess(
+    (val) => val === 'true' || val === true,
+    z.boolean().default(false)
+  ),
+})
+
+// Semantic search result type
+interface SemanticSearchResult {
+  id: string
+  url: string
+  title: string
+  source: string
+  author: string | null
+  blurb: string
+  category: string
+  tags: string[]
+  content_type: string | null
+  created_at: string
+  similarity: number
+}
+
+// GET /search/semantic - Semantic search using embeddings
+bookmarksRoutes.get('/search/semantic', async (c) => {
+  try {
+    const user = c.get('user')
+    const query = c.req.query()
+
+    // Parse and validate query params
+    const params = semanticSearchSchema.parse({
+      q: query.q,
+      limit: query.limit,
+      threshold: query.threshold,
+      includeArchived: query.includeArchived,
+    })
+
+    console.log(`[bookmarks] Semantic search for user ${user.id}: "${params.q}"`)
+
+    // Generate embedding for the search query
+    const queryEmbedding = await generateQueryEmbedding(params.q)
+    const embeddingLiteral = formatEmbeddingForPostgres(queryEmbedding)
+
+    // Call semantic search RPC function (defined in migration 013_add_semantic_search.sql)
+    const { data: results, error } = await supabaseAdmin.rpc(
+      'search_bookmarks_semantic' as never,
+      {
+        query_embedding: embeddingLiteral,
+        user_id_param: user.id,
+        match_threshold: params.threshold,
+        match_count: params.limit,
+        include_archived: params.includeArchived,
+      } as never
+    )
+
+    if (error) {
+      console.error('[bookmarks] Semantic search error:', error)
+      // Fall back to keyword search if semantic search fails
+      return c.json({
+        error: 'Semantic search unavailable',
+        fallback: 'keyword',
+        message: error.message,
+      }, 503)
+    }
+
+    const typedResults = results as SemanticSearchResult[] | null
+
+    return c.json({
+      query: params.q,
+      results: typedResults || [],
+      count: typedResults?.length || 0,
+    })
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return c.json({ error: 'Invalid query parameters', details: error.issues }, 400)
+    }
+    console.error('[bookmarks] Error in semantic search:', error)
     return c.json({ error: 'Internal server error' }, 500)
   }
 })

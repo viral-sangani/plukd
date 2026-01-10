@@ -4,6 +4,7 @@ import { supabaseAdmin } from '../../config/supabase'
 import { extractContent } from '../../lib/extractors'
 import { extractOGMetadata } from '../../lib/extractors/og-metadata'
 import { processContentWithRetry } from '../../lib/ai/process'
+import { generateBookmarkEmbedding, formatEmbeddingForPostgres } from '../../lib/ai/embeddings'
 import { detectSource, generateFallbackTitle } from '@plukd/shared'
 import type { ProcessingStatus, ContentSource, ExtractedContent, RawMetadata } from '@plukd/shared'
 
@@ -208,6 +209,7 @@ export async function processBookmarkJob(job: Job<BookmarkProcessingJob>): Promi
         content_type: aiResult.contentType,
         extracted_resources: aiResult.extractedResources ?? null,
         resource_layout_hint: aiResult.resourceLayoutHint ?? null,
+        key_takeaways: aiResult.keyTakeaways ?? null,
         // Status
         processing_status: 'completed' as ProcessingStatus,
         processing_error: null,
@@ -217,6 +219,40 @@ export async function processBookmarkJob(job: Job<BookmarkProcessingJob>): Promi
 
     if (updateError) {
       throw new Error(`Database update failed: ${updateError.message}`)
+    }
+
+    await job.updateProgress(90)
+
+    // Step 5: Generate and save embedding for semantic search (non-blocking)
+    try {
+      console.log(`[processor] Generating embedding for bookmark ${bookmarkId}`)
+      const embedding = await generateBookmarkEmbedding(
+        finalTitle,
+        aiResult.blurb,
+        aiResult.summary,
+        aiResult.keyTakeaways
+      )
+
+      const embeddingLiteral = formatEmbeddingForPostgres(embedding)
+      // RPC function defined in migration 013_add_semantic_search.sql
+      const { error: embeddingError } = await supabaseAdmin.rpc(
+        'update_bookmark_embedding' as never,
+        {
+          bookmark_id: bookmarkId,
+          embedding_value: embeddingLiteral,
+        } as never
+      )
+
+      if (embeddingError) {
+        // Non-fatal: log and continue
+        console.warn(`[processor] Failed to save embedding: ${embeddingError.message}`)
+      } else {
+        console.log(`[processor] Embedding saved for bookmark ${bookmarkId}`)
+      }
+    } catch (embeddingError) {
+      // Non-fatal: log and continue
+      const errorMessage = embeddingError instanceof Error ? embeddingError.message : String(embeddingError)
+      console.warn(`[processor] Embedding generation failed: ${errorMessage}`)
     }
 
     await job.updateProgress(100)

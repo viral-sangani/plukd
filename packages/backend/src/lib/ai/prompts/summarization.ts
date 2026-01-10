@@ -1,12 +1,21 @@
 import type { ExtractedContent, ContentSource, ExtractedResource, ContentType, ResourceLayoutHint } from '@plukd/shared'
-import type { ClassificationResult } from './classification'
+import type { ClassificationResult, ListIndicators } from './classification'
+
+/**
+ * Content truncation limits for summarization
+ */
+const SUMMARIZATION_CONTENT_DEFAULT = 8000
+const SUMMARIZATION_CONTENT_LIST = 15000
+const SUMMARIZATION_TRANSCRIPT_DEFAULT = 5000
+const SUMMARIZATION_TRANSCRIPT_LIST = 8000
+const SUMMARIZATION_REPLIES_LIMIT = 5
 
 /**
  * Result from Pass 2 summarization (Pro model)
  */
 export interface SummarizationResult {
-  blurb: string // 2-3 sentences, 50-200 chars
-  summary: string // bullet points with **bold** emphasis, 300-1200 chars
+  blurb: string // 2-3 sentences, 100-250 chars
+  summary: string // bullet points with **bold** emphasis, 400-1200 chars
   extractedResources?: ExtractedResource[] // Only for list content type
   resourceLayoutHint?: ResourceLayoutHint // Suggested layout for displaying extracted resources
 }
@@ -157,16 +166,19 @@ function isExtractionFailed(content: ExtractedContent): boolean {
 /**
  * Builds the summarization prompt for Pass 2 (Pro model).
  * Uses classification results to provide context-aware summarization.
+ * Uses adaptive truncation - more content for list content type.
  *
- * @param content - Extracted content with full text (up to 8000 chars)
+ * @param content - Extracted content
  * @param classification - Results from Pass 1 classification
  * @param hasImages - Whether the content includes images for multimodal analysis
+ * @param listIndicators - Optional list indicators for additional context
  * @returns Prompt string for summarization
  */
 export function buildSummarizationPrompt(
   content: ExtractedContent,
   classification: ClassificationResult,
-  hasImages?: boolean
+  hasImages?: boolean,
+  listIndicators?: ListIndicators
 ): string {
   // Check if extraction failed - return simple fallback prompt
   if (isExtractionFailed(content)) {
@@ -180,20 +192,30 @@ Respond in JSON only:
 {"blurb":"Could not extract content from this URL.","summary":"• **Content unavailable** - The page content could not be automatically extracted.\\n• **Visit directly** - Please click the link to view the original content."}`
   }
 
-  // Truncate content to 8000 chars for summarization
-  const truncatedContent = content.content.slice(0, 8000)
+  // Use adaptive truncation - more content for list type
+  const isListContent = classification.contentType === 'list'
+  const contentLimit = isListContent ? SUMMARIZATION_CONTENT_LIST : SUMMARIZATION_CONTENT_DEFAULT
+  const transcriptLimit = isListContent ? SUMMARIZATION_TRANSCRIPT_LIST : SUMMARIZATION_TRANSCRIPT_DEFAULT
+
+  // Truncate content with adaptive limits
+  const truncatedContent = content.content.slice(0, contentLimit)
 
   // Build replies section if available
   const repliesSection = content.replies?.length
     ? `\n\nTop Replies/Comments:\n${content.replies
-        .slice(0, 5)
+        .slice(0, SUMMARIZATION_REPLIES_LIMIT)
         .map((r, i) => `${i + 1}. ${r}`)
         .join('\n')}`
     : ''
 
-  // Build transcript section if available (especially for YouTube)
+  // Build transcript section if available (especially for YouTube/Instagram)
   const transcriptSection = content.transcript
-    ? `\n\nTranscript:\n${content.transcript.slice(0, 5000)}${content.transcript.length > 5000 ? '...(truncated)' : ''}`
+    ? `\n\nTranscript:\n${content.transcript.slice(0, transcriptLimit)}${content.transcript.length > transcriptLimit ? '...(truncated)' : ''}`
+    : ''
+
+  // Add list extraction hint if we have indicators
+  const listExtractionHint = listIndicators?.isLikelyList && listIndicators.estimatedItemCount > 0
+    ? `\n\nNOTE: This content appears to contain approximately ${listIndicators.estimatedItemCount} items. Ensure you extract ALL of them.`
     : ''
 
   const contentTypeInstructions = getContentTypeInstructions(
@@ -226,13 +248,13 @@ URL: ${input.url}
 Source: ${input.source}
 
 Main Content:
-${input.content}${content.content.length > 8000 ? '...(truncated)' : ''}
+${input.content}${content.content.length > contentLimit ? '...(truncated)' : ''}
 ${repliesSection}${transcriptSection}
 
 ${contentTypeInstructions}
-${imageInstructions}
+${imageInstructions}${listExtractionHint}
 
-Create TWO outputs:
+Create THREE outputs:
 
 1. BLURB (2-3 sentences, 50-200 characters):
 - Hook the reader - make them want to revisit this
@@ -251,6 +273,18 @@ Format example:
 • **Another point** - minimal context
 • **Actionable takeaway** - what to do next
 
+3. KEY_TAKEAWAYS (3-5 actionable items):
+Extract specific, actionable items from this content. Each should be:
+- Short (under 100 characters)
+- Actionable or notable
+- Specific (include names, tools, concepts mentioned)
+
+Types:
+- "action": Something to try/do (e.g., "Try Claude for code review")
+- "idea": Content/post idea (e.g., "Post about async/await patterns")
+- "reminder": Something to revisit (e.g., "Read 'Thinking Fast and Slow'")
+- "reference": Useful reference to keep (e.g., "Bookmark RAG implementation guide")
+
 Guidelines:
 - Write for future-you who saved this and wants to remember why
 - Be objective and accurate - preserve technical terminology
@@ -258,33 +292,42 @@ Guidelines:
 - For opinions/discussions, represent viewpoints fairly
 
 ${classification.contentType === 'list' ? `
-3. EXTRACTED_RESOURCES (REQUIRED for list content):
+4. EXTRACTED_RESOURCES (REQUIRED for list content):
 - Extract EVERY item mentioned as a structured array
 - Each item: {"name": "...", "description": "...", "category": "...", "url": "..."}
 - Categories: book, tool, app, movie, show, podcast, course, resource, other
 - Include URLs only if explicitly mentioned in content
 - Do NOT skip any items - extract ALL of them
 
-4. RESOURCE_LAYOUT_HINT (REQUIRED for list content):
+5. RESOURCE_LAYOUT_HINT (REQUIRED for list content):
 - Choose the best layout: numbered-steps, grid, accordion, checklist, cards, table, or simple-list
 - Match the layout to the content type (e.g., cards for movies, grid for tools)
 
 Respond in JSON only:
-{"blurb":"...","summary":"...","extractedResources":[{"name":"...","description":"...","category":"...","url":"..."}],"resourceLayoutHint":"..."}` : `
+{"blurb":"...","summary":"...","keyTakeaways":[{"text":"...","type":"action|idea|reminder|reference"}],"extractedResources":[{"name":"...","description":"...","category":"...","url":"..."}],"resourceLayoutHint":"..."}` : `
 Respond in JSON only:
-{"blurb":"...","summary":"..."}`}`
+{"blurb":"...","summary":"...","keyTakeaways":[{"text":"...","type":"action|idea|reminder|reference"}]}`}`
 }
 
 /**
- * Prepares content for summarization by ensuring appropriate truncation
+ * Prepares content for summarization by ensuring appropriate truncation.
+ * Uses adaptive limits based on whether content is list type.
+ *
+ * @param content - Full extracted content
+ * @param isListContent - Whether content is classified as list type
+ * @returns Content with appropriately truncated text
  */
 export function prepareForSummarization(
-  content: ExtractedContent
+  content: ExtractedContent,
+  isListContent: boolean = false
 ): ExtractedContent {
+  const contentLimit = isListContent ? SUMMARIZATION_CONTENT_LIST : SUMMARIZATION_CONTENT_DEFAULT
+  const transcriptLimit = isListContent ? SUMMARIZATION_TRANSCRIPT_LIST : SUMMARIZATION_TRANSCRIPT_DEFAULT
+
   return {
     ...content,
-    content: content.content.slice(0, 8000),
-    transcript: content.transcript?.slice(0, 5000),
-    replies: content.replies?.slice(0, 5),
+    content: content.content.slice(0, contentLimit),
+    transcript: content.transcript?.slice(0, transcriptLimit),
+    replies: content.replies?.slice(0, SUMMARIZATION_REPLIES_LIMIT),
   }
 }
