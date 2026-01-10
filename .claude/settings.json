@@ -1,0 +1,45 @@
+{
+  "enabledPlugins": {
+    "pr-review-toolkit@claude-plugins-official": true,
+    "code-review@claude-plugins-official": true,
+    "frontend-design@claude-plugins-official": true,
+    "figma@claude-plugins-official": true
+  },
+  "autoApprovedTools": [
+    "Bash(pnpm install:*)",
+    "Bash(pnpm install)",
+    "Bash(pnpm build:*)",
+    "Bash(pnpm dev:*)",
+    "Bash(pnpm lint:*)",
+    "Bash(pnpm typecheck:*)",
+    "Bash(pnpm add:*)",
+    "Bash(npm install:*)",
+    "Bash(npm run build:*)",
+    "Bash(npm run dev:*)",
+    "Bash(npm run lint:*)",
+    "Bash(npx supabase:*)",
+    "Bash(git diff:*)",
+    "Bash(git status:*)",
+    "Bash(git log:*)",
+    "Bash(tree:*)",
+    "Bash(ls:*)",
+    "Bash(cat:*)",
+    "WebFetch(domain:supabase.com)",
+    "WebFetch(domain:docs.bullmq.io)",
+    "WebFetch(domain:grammy.dev)",
+    "WebFetch(domain:raw.githubusercontent.com)",
+    "WebSearch",
+    "mcp__plugin_context7_context7__resolve-library-id",
+    "mcp__plugin_context7_context7__query-docs",
+    "mcp__plugin_supabase_supabase__execute_sql",
+    "mcp__plugin_supabase_supabase__list_projects"
+  ],
+  "env": {
+    "SUPABASE_URL": "${SUPABASE_URL}",
+    "SUPABASE_SERVICE_ROLE_KEY": "${SUPABASE_SERVICE_ROLE_KEY}",
+    "SUPABASE_ANON_KEY": "${NEXT_PUBLIC_SUPABASE_ANON_KEY}",
+    "TELEGRAM_BOT_TOKEN": "${TELEGRAM_BOT_TOKEN}",
+    "GOPHER_API_KEY": "${GOPHER_API_KEY}",
+    "GOOGLE_GENERATIVE_AI_API_KEY": "${GOOGLE_GENERATIVE_AI_API_KEY}"
+  }
+}
