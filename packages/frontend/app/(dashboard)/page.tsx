@@ -92,7 +92,7 @@ function DashboardPageContent() {
   }, [urlSource])
 
   // Fetch bookmarks from API with search query, filters, and pagination
-  const { data, isLoading, isFetching, isError, error, refetch } = useBookmarks({
+  const { data, isLoading, isFetching, isError, error, refetch, searchMode } = useBookmarks({
     page: currentPage,
     limit: rowsPerPage,
     search: searchQuery || undefined,
@@ -349,6 +349,7 @@ function DashboardPageContent() {
           onPageChange={handlePageChange}
           onRowsPerPageChange={handleRowsPerPageChange}
           isPageChanging={isFetching && !isLoading}
+          showSimilarity={searchMode === 'semantic'}
           onSelectionChange={handleSelectionChange}
           isDeleteDialogOpen={isDeleteDialogOpen}
           onDeleteDialogOpenChange={setIsDeleteDialogOpen}

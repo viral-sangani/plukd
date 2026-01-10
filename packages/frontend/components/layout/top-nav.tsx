@@ -18,6 +18,7 @@ import {
   LogOut,
   ChevronDown,
   X,
+  Sparkles,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -111,6 +112,7 @@ function SearchBar({ className, onSearch }: SearchBarProps) {
   const [value, setValue] = useState(urlSearchValue)
   const timeoutRef = useRef<NodeJS.Timeout | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const hasActiveSearch = value.length > 0
 
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -165,7 +167,14 @@ function SearchBar({ className, onSearch }: SearchBarProps) {
 
   return (
     <div className={cn("relative group", className)}>
-      <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-foreground-muted pointer-events-none group-focus-within:text-accent transition-colors" />
+      {hasActiveSearch ? (
+        <Sparkles
+          className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-accent pointer-events-none transition-colors"
+          aria-label="AI-powered semantic search"
+        />
+      ) : (
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-foreground-muted pointer-events-none group-focus-within:text-accent transition-colors" />
+      )}
       <input
         ref={inputRef}
         type="text"

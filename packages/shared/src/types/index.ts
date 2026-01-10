@@ -124,6 +124,8 @@ export interface Bookmark {
   is_archived: boolean
   created_at: string
   updated_at: string
+  // Similarity score from semantic search (0-1 range)
+  similarity?: number
 }
 
 export interface User {
@@ -300,6 +302,15 @@ export interface BookmarkListParams {
   archived?: boolean
   sortBy?: 'created_at' | 'title'
   sortOrder?: 'asc' | 'desc'
+}
+
+// Semantic search parameters
+export interface SemanticSearchParams {
+  query: string
+  threshold?: number // 0-1 range, default 0.7
+  limit?: number // Max results, default 10
+  excludeId?: string // Exclude specific bookmark ID (for similar bookmarks)
+  includeArchived?: boolean // Include archived bookmarks, default false
 }
 
 // Export reply-related types

@@ -1,7 +1,8 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '@/lib/api/client'
 import type { Bookmark, BookmarkListResponse, ProcessingStatus } from '@plukd/shared/types'
+import { useSemanticSearch, type SemanticSearchResponse } from './use-semantic-search'
 
 export interface UseBookmarksParams {
   page?: number
@@ -42,21 +43,108 @@ export function bookmarksQueryKey(params: UseBookmarksParams = {}) {
   return ['bookmarks', params] as const
 }
 
+/**
+ * Convert semantic search response to bookmark list response format
+ */
+function semanticToBookmarkList(
+  response: SemanticSearchResponse,
+  page: number,
+  limit: number
+): BookmarkListResponse {
+  // Semantic search doesn't have pagination built-in yet,
+  // so we treat it as a single page result
+  return {
+    bookmarks: response.results as Bookmark[],
+    pagination: {
+      page: 1,
+      limit: response.count,
+      total: response.count,
+      totalPages: 1,
+    },
+  }
+}
+
 export function useBookmarks(params: UseBookmarksParams = {}) {
-  return useQuery({
+  const [searchMode, setSearchMode] = useState<'semantic' | 'fallback' | null>(null)
+  const [hasFallbackNotified, setHasFallbackNotified] = useState(false)
+
+  // Try semantic search first if search query exists
+  const semanticEnabled = Boolean(params.search && params.search.length > 0)
+  const semanticSearch = useSemanticSearch({
+    query: params.search || '',
+    limit: params.limit || 25,
+    includeArchived: params.archived,
+  })
+
+  // Regular bookmark query (fallback)
+  const regularQuery = useQuery({
     queryKey: bookmarksQueryKey(params),
     queryFn: () => fetchBookmarks(params),
-    staleTime: 30 * 1000, // Consider bookmarks stale after 30 seconds
-    // Refetch when window regains focus (bookmarks can be added via Telegram)
+    staleTime: 30 * 1000,
     refetchOnWindowFocus: true,
+    // Only enable regular query if:
+    // - No search query (regular browsing)
+    // - OR semantic search is unavailable (503 error)
+    enabled:
+      !semanticEnabled ||
+      (semanticEnabled && semanticSearch.mode === 'unavailable'),
     retry: (failureCount, error) => {
-      // Don't retry on authentication errors
       if (error instanceof Error && error.message === 'Unauthorized') {
         return false
       }
       return failureCount < 2
     },
   })
+
+  // Determine which data to return
+  const shouldUseSemanticResults =
+    semanticEnabled &&
+    semanticSearch.mode === 'semantic' &&
+    !semanticSearch.isLoading &&
+    !semanticSearch.error &&
+    semanticSearch.data
+
+  const data = shouldUseSemanticResults && semanticSearch.data
+    ? semanticToBookmarkList(
+        semanticSearch.data,
+        params.page || 1,
+        params.limit || 25
+      )
+    : regularQuery.data
+
+  const isLoading = semanticEnabled
+    ? semanticSearch.isLoading || (semanticSearch.mode === 'unavailable' && regularQuery.isLoading)
+    : regularQuery.isLoading
+
+  const error = shouldUseSemanticResults ? semanticSearch.error : regularQuery.error
+
+  // Track search mode
+  useEffect(() => {
+    if (!semanticEnabled) {
+      setSearchMode(null)
+      setHasFallbackNotified(false)
+    } else if (semanticSearch.mode === 'unavailable') {
+      setSearchMode('fallback')
+      // Notify user once about fallback
+      if (!hasFallbackNotified) {
+        setHasFallbackNotified(true)
+      }
+    } else if (semanticSearch.mode === 'semantic') {
+      setSearchMode('semantic')
+    }
+  }, [semanticEnabled, semanticSearch.mode, hasFallbackNotified])
+
+  return {
+    data,
+    isLoading,
+    error,
+    isError: Boolean(error),
+    searchMode, // 'semantic', 'fallback', or null (no search)
+    needsFallbackNotification: searchMode === 'fallback' && !hasFallbackNotified,
+    // Pass through other query props for compatibility
+    refetch: shouldUseSemanticResults ? semanticSearch.refetch : regularQuery.refetch,
+    isFetching: shouldUseSemanticResults ? semanticSearch.isFetching : regularQuery.isFetching,
+  }
 }
 
 // Hook to prefetch bookmarks for a different page

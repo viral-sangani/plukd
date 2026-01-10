@@ -21,6 +21,7 @@ import { SourceBadge } from '@/components/ui/source-badge'
 import { CategoryBadge } from '@/components/ui/category-badge'
 import { Button } from '@/components/ui/button'
 import { ResourceList } from '@/components/bookmarks/resource-list'
+import { SimilarBookmarks } from '@/components/bookmarks/similar-bookmarks'
 import { TAG_LABELS } from '@plukd/shared/constants'
 import { useBookmark, useDeleteBookmark } from '@/lib/hooks'
 import { api } from '@/lib/api/client'
@@ -552,6 +553,9 @@ export function BookmarkDetailClient({ id, initialBookmark }: BookmarkDetailClie
             </Button>
           </section>
         )}
+
+        {/* Similar Bookmarks */}
+        <SimilarBookmarks bookmarkId={id} className="mb-8" />
 
         {/* Metadata Section */}
         <section className="mb-8">

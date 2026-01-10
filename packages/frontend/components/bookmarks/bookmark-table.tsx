@@ -172,6 +172,7 @@ function saveBookmarkOrder(order: string[]): void {
 interface SortableBookmarkRowProps {
   bookmark: Bookmark
   isSelected: boolean
+  showSimilarity?: boolean
   onSelectRow: (id: string, checked: boolean) => void
   onRowClick: (bookmark: Bookmark) => void
   onCopyUrl: (url: string, e: React.MouseEvent) => void
@@ -184,6 +185,7 @@ interface SortableBookmarkRowProps {
 function SortableBookmarkRow({
   bookmark,
   isSelected,
+  showSimilarity = false,
   onSelectRow,
   onRowClick,
   onCopyUrl,
@@ -316,6 +318,18 @@ function SortableBookmarkRow({
       <TableCell className="py-3">
         <SourceBadge source={bookmark.source} size="sm" />
       </TableCell>
+
+      {/* Similarity Score (only shown during semantic search) */}
+      {showSimilarity && bookmark.similarity !== undefined && (
+        <TableCell className="py-3 hidden md:table-cell">
+          <span
+            className="inline-flex items-center rounded bg-foreground-muted/10 px-2 py-0.5 text-[11px] font-mono text-foreground-muted"
+            aria-label={`${Math.round(bookmark.similarity * 100)}% similarity match`}
+          >
+            {Math.round(bookmark.similarity * 100)}%
+          </span>
+        </TableCell>
+      )}
 
       {/* Category */}
       <TableCell className="py-3">
@@ -522,6 +536,8 @@ interface BookmarkTableProps {
   onRowsPerPageChange: (rows: number) => void
   /** Whether a page change is in progress (for loading state) */
   isPageChanging?: boolean
+  /** Whether to show similarity scores (for semantic search results) */
+  showSimilarity?: boolean
   onSelectBookmark?: (bookmark: Bookmark) => void
   onSelectionChange?: (selectedIds: Set<string>) => void
   isDeleteDialogOpen?: boolean
@@ -540,6 +556,7 @@ export function BookmarkTable({
   onPageChange,
   onRowsPerPageChange,
   isPageChanging = false,
+  showSimilarity = false,
   onSelectBookmark,
   onSelectionChange,
   isDeleteDialogOpen: controlledDeleteDialogOpen,
@@ -1011,6 +1028,7 @@ export function BookmarkTable({
                     key={bookmark.id}
                     bookmark={bookmark}
                     isSelected={selectedIds.has(bookmark.id)}
+                    showSimilarity={showSimilarity}
                     onSelectRow={handleSelectRow}
                     onRowClick={handleRowClick}
                     onCopyUrl={handleCopyUrl}

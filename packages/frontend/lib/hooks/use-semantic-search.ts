@@ -66,27 +66,27 @@ export function semanticSearchQueryKey(params: UseSemanticSearchParams) {
  * For example, "find that article about scaling databases" will find relevant
  * bookmarks even without exact keyword matches.
  *
- * @param query - The search query (min 2 characters)
+ * @param query - The search query
  * @param options - Search options (limit, threshold, includeArchived)
- * @returns Query result with semantic search results
+ * @returns Query result with semantic search results and search mode
  *
  * @example
  * ```tsx
- * const { data, isLoading, error } = useSemanticSearch({
+ * const { data, isLoading, mode } = useSemanticSearch({
  *   query: 'scaling databases',
  *   limit: 10,
  * })
  *
  * if (data) {
- *   console.log(`Found ${data.count} results`)
+ *   console.log(`Found ${data.count} results using ${mode} search`)
  *   data.results.forEach(r => console.log(`${r.title} (${r.similarity})`))
  * }
  * ```
  */
 export function useSemanticSearch(params: UseSemanticSearchParams) {
-  const enabled = params.query.length >= 2
+  const enabled = params.query.length > 0
 
-  return useQuery({
+  const query = useQuery({
     queryKey: semanticSearchQueryKey(params),
     queryFn: () => fetchSemanticSearch(params),
     enabled,
@@ -103,6 +103,16 @@ export function useSemanticSearch(params: UseSemanticSearchParams) {
       return failureCount < 2
     },
   })
+
+  // Determine search mode based on error status
+  const mode: 'semantic' | 'unavailable' = query.error?.message?.includes('503')
+    ? 'unavailable'
+    : 'semantic'
+
+  return {
+    ...query,
+    mode,
+  }
 }
 
 /**
