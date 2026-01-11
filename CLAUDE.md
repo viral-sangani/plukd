@@ -34,6 +34,14 @@ pnpm build:shared     # Build shared package (required before other builds)
 pnpm build:backend    # Build backend only
 pnpm build:frontend   # Build frontend only
 
+# Testing
+pnpm test             # Run all tests across all packages
+pnpm test:shared      # Run shared package tests
+pnpm test:backend     # Run backend tests
+pnpm test:frontend    # Run frontend tests
+pnpm test:watch       # Run tests in watch mode
+pnpm test:coverage    # Run tests with coverage report
+
 # Lint
 pnpm lint             # Lint all packages
 
@@ -190,6 +198,194 @@ NEXT_PUBLIC_API_URL=http://localhost:3000
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 ```
+
+## Testing and Development Workflow
+
+### Test-Driven Development (TDD)
+
+**CRITICAL RULES:**
+- **NEVER** implement features without tests first
+- **ALWAYS** use the test-writer agent to generate comprehensive test cases before implementation
+- **100% test coverage** is the goal; minimum thresholds:
+  - Shared package: 100% (all metrics)
+  - Backend: 80% statements, 75% branches, 85% functions
+  - Frontend: 75% statements, 70% branches, 80% functions
+- Features are **NOT COMPLETE** until all tests pass and coverage thresholds are met
+- **NEVER** skip tests, even for "simple" changes
+- **ALWAYS** fix broken tests immediately; never commit failing tests
+
+### Parallel Agent Architecture
+
+**Main Thread Responsibilities:**
+- Manage TodoWrite task lists to track progress
+- Coordinate parallel agents for maximum efficiency
+- Synthesize agent results into actionable insights
+- Communicate progress and results to user
+- **NEVER** do complex exploration or implementation directly; delegate to specialized agents
+
+**MANDATORY Parallel Agent Usage:**
+
+#### 1. Exploration Tasks
+**ALWAYS use Task tool with Explore agents (NEVER Grep/Glob/Read directly for exploration):**
+
+- **Quick thoroughness** (1-2 files expected): Simple, targeted searches
+- **Medium thoroughness** (3-10 files): Moderate complexity investigations
+- **Very thorough thoroughness** (10+ files or cross-cutting concerns): Comprehensive analysis
+
+**Launch 2-4 Explore agents in parallel** for comprehensive investigations of unfamiliar code areas.
+
+**Examples:**
+- ❌ BAD: Use Grep to search for "authentication flow"
+- ✅ GOOD: Launch Explore agent with prompt "Investigate authentication flow implementation"
+- ❌ BAD: Use Glob to find "all API routes"
+- ✅ GOOD: Launch Explore agent with prompt "Map all API routes and their purposes"
+
+#### 2. Feature Implementation Workflow
+**ALWAYS follow this exact sequence:**
+
+1. **Investigation Phase** (if needed):
+   - Launch 2-4 Explore agents in parallel to understand existing code
+   - Synthesize findings before proceeding
+
+2. **Test Creation Phase** (MANDATORY):
+   - Launch test-writer agent to create comprehensive test cases
+   - Tests must cover: happy path, edge cases, error scenarios, integration points
+   - Review test plan before implementation
+
+3. **Implementation Phase**:
+   - Launch senior-developer-generic agent to implement feature
+   - Agent must run tests continuously during development
+   - Agent must fix any test failures immediately
+   - Agent must NOT declare complete until all tests pass
+
+4. **Review Phase** (launch in parallel):
+   - code-reviewer (patterns, consistency, security)
+   - error-logging-auditor (error handling consistency)
+   - security-auditor (vulnerabilities, sensitive data)
+   - pr-test-analyzer (test coverage quality)
+
+5. **Verification Phase**:
+   - Run full test suite (backend + frontend)
+   - Check coverage reports (must meet thresholds)
+   - Fix any regressions immediately
+
+**Example Workflow:**
+```
+User: "Add Instagram Reels support"
+
+✅ CORRECT:
+1. Launch 2 Explore agents (Instagram extractor + AI integration)
+2. Launch test-writer agent → creates tests for extraction, metadata, AI processing
+3. Launch senior-developer agent → implements feature, runs tests continuously
+4. Launch 3 review agents in parallel → code-reviewer, error-auditor, security-auditor
+5. Verify coverage maintained at 80%+
+6. Declare complete only when all tests pass
+
+❌ INCORRECT:
+1. Implement Instagram Reels extraction directly
+2. Test manually with a few URLs
+3. Declare complete without automated tests
+```
+
+#### 3. Code Review and Audits
+**ALWAYS launch multiple review agents in parallel (never sequentially):**
+
+For any significant code change or new feature, launch in a **single message**:
+- **code-reviewer**: Checks adherence to project patterns and style guides
+- **error-logging-auditor**: Validates error handling and logging consistency
+- **security-auditor**: Identifies security vulnerabilities
+- **pr-test-analyzer**: Reviews test coverage and quality
+- **test-auditor**: Identifies untested code paths and missing edge cases
+
+**Example:**
+```
+✅ GOOD: Launch all review agents in single message after implementation
+❌ BAD: Launch code-reviewer, wait for result, then launch error-auditor, etc.
+```
+
+### Testing Standards
+
+**Test File Organization:**
+```
+packages/[package]/
+├── src/
+│   ├── [module]/
+│   │   ├── __tests__/
+│   │   │   ├── [module].test.ts
+│   │   │   └── [submodule].test.ts
+│   │   └── [module].ts
+│   └── ...
+├── vitest.config.ts
+└── package.json (with test scripts)
+```
+
+**Test Naming Convention:**
+```typescript
+describe('[Module/Component Name]', () => {
+  describe('[function/method name]', () => {
+    it('should [expected behavior]', () => {
+      // Arrange, Act, Assert
+    })
+
+    it('should handle [edge case]', () => {
+      // Edge case test
+    })
+
+    it('should throw error when [error condition]', () => {
+      // Error handling test
+    })
+  })
+})
+```
+
+**Required Test Categories:**
+1. **Happy Path Tests**: Test primary functionality with valid inputs
+2. **Edge Case Tests**: Boundary values, empty inputs, null/undefined
+3. **Error Handling Tests**: Invalid inputs, API failures, database errors
+4. **Integration Tests**: Multiple components working together
+5. **Regression Tests**: Prevent previously fixed bugs from returning
+
+**Mocking Strategy:**
+- Mock all external services (Supabase, Telegram, Google AI, Redis)
+- Use realistic test data from fixtures
+- Prefer test utilities over inline mocks for reusability
+- Mock time-dependent functions (Date.now(), setTimeout) for deterministic tests
+
+### Coverage Requirements
+
+**100% Coverage Required For:**
+- Shared package (utilities, schemas, constants)
+- Error handling branches in critical paths
+- Authentication and authorization logic
+- Data validation and sanitization
+- Payment/financial operations (if any)
+
+**Minimum Coverage Thresholds:**
+- Backend critical paths: 100% (AI pipeline, processing, extraction)
+- Backend overall: 80% statements, 75% branches, 85% functions
+- Frontend hooks and complex components: 75%+
+- Frontend overall: 75% statements, 70% branches, 80% functions
+
+**Coverage Enforcement:**
+- CI/CD blocks merges if coverage drops below thresholds
+- Coverage reports generated on every test run
+- Uncovered lines must be justified or covered
+
+### When NOT to Use Parallel Agents
+
+**Use direct tools for:**
+- Reading a specific known file path (use Read tool)
+- Writing/editing a single known file (use Write/Edit tools)
+- Running a specific command (use Bash tool)
+- Simple file pattern matching (use Glob for exact patterns like "*.config.ts")
+- Creating/updating TodoWrite task lists
+
+**Use agents for:**
+- Exploring unfamiliar code areas
+- Searching for concepts across multiple files
+- Implementing features
+- Writing comprehensive test suites
+- Reviewing code quality
 
 ## Deployment
 

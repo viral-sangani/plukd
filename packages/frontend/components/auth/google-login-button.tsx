@@ -14,10 +14,13 @@ export function GoogleLoginButton() {
     try {
       const supabase = createClient();
 
+      // Get the current origin (localhost:3001 or plukd.xyz)
+      const currentOrigin = window.location.origin;
+
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${window.location.origin}/api/auth/callback`,
+          redirectTo: `${currentOrigin}/api/auth/callback`,
         },
       });
 

@@ -32,12 +32,23 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "clean": "rm -rf dist",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "zod": "^4.2.1"
   },
   "devDependencies": {
-    "typescript": "^5.7.0"
+    "@jest/globals": "^30.2.0",
+    "@types/jest": "^30.0.0",
+    "@vitest/coverage-v8": "^4.0.16",
+    "@vitest/ui": "^4.0.16",
+    "jest": "^30.2.0",
+    "lucide-react": "^0.562.0",
+    "ts-jest": "^29.4.6",
+    "typescript": "^5.7.0",
+    "vitest": "^4.0.16"
   }
 }

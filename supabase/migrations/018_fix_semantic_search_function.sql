@@ -1,23 +1,9 @@
--- Migration: Add semantic search with pgvector
--- This adds embedding column and search function for semantic bookmark search
+-- Migration: Fix semantic search function search_path and source type
+-- The <=> operator for vector distance is in the extensions schema,
+-- so we need to include extensions in the search_path for the function.
+-- Also, the source column is content_source enum and needs to be cast to text.
 
--- Note: The vector extension should already be enabled in Supabase
--- If you get an error about vector type not existing, enable it manually:
--- CREATE EXTENSION IF NOT EXISTS vector;
-
--- Add embedding column to bookmarks
--- Using 768 dimensions for text-embedding-004 model
-ALTER TABLE public.bookmarks
-ADD COLUMN IF NOT EXISTS embedding extensions.vector(768);
-
--- Create HNSW index for fast approximate nearest neighbor search
--- Using cosine distance for normalized embeddings
-CREATE INDEX IF NOT EXISTS idx_bookmarks_embedding
-ON bookmarks
-USING hnsw (embedding extensions.vector_cosine_ops)
-WITH (m = 16, ef_construction = 64);
-
--- Create semantic search function
+-- Recreate the semantic search function with corrected search_path and source cast
 CREATE OR REPLACE FUNCTION search_bookmarks_semantic(
   query_embedding extensions.vector(768),
   user_id_param uuid,
@@ -68,11 +54,7 @@ BEGIN
 END;
 $$;
 
--- Grant execute permission to authenticated users
-GRANT EXECUTE ON FUNCTION search_bookmarks_semantic TO authenticated;
-
--- Create helper function to update bookmark embedding
--- This handles the text-to-vector conversion
+-- Also fix the update_bookmark_embedding function
 CREATE OR REPLACE FUNCTION update_bookmark_embedding(
   bookmark_id uuid,
   embedding_value text
@@ -91,9 +73,6 @@ BEGIN
 END;
 $$;
 
--- Grant execute permission to service role (backend uses service role key)
+-- Ensure permissions are still granted
+GRANT EXECUTE ON FUNCTION search_bookmarks_semantic TO authenticated;
 GRANT EXECUTE ON FUNCTION update_bookmark_embedding TO service_role;
-
--- Add comment for documentation
-COMMENT ON COLUMN bookmarks.embedding IS 'Vector embedding for semantic search, generated from title + blurb + summary + key_takeaways';
-COMMENT ON FUNCTION search_bookmarks_semantic IS 'Search bookmarks by semantic similarity using vector embeddings';

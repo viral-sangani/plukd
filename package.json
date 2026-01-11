@@ -17,11 +17,20 @@
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
     "clean": "pnpm -r clean",
-    "db:push": "npx supabase db push"
+    "db:push": "npx supabase db push",
+    "test": "pnpm --recursive test",
+    "test:shared": "pnpm --filter @plukd/shared test",
+    "test:backend": "pnpm --filter @plukd/backend test",
+    "test:frontend": "pnpm --filter @plukd/frontend test",
+    "test:watch": "pnpm --recursive test:watch",
+    "test:coverage": "pnpm --recursive test:coverage"
   },
   "devDependencies": {
     "@types/node": "^20.19.27",
+    "@vitest/coverage-v8": "^4.0.16",
+    "@vitest/ui": "^4.0.16",
     "concurrently": "^9.1.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^4.0.16"
   }
 }
