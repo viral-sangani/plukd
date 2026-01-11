@@ -9,6 +9,34 @@ import type { KeyTakeaway } from '@plukd/shared'
 const MAX_EMBEDDING_INPUT_LENGTH = 8000
 
 /**
+ * Expected dimension for text-embedding-004 embeddings.
+ * This is a fixed value for the model and must be validated.
+ */
+export const EXPECTED_EMBEDDING_DIMENSION = 768
+
+/**
+ * Custom error class for embedding dimension validation failures.
+ */
+export class EmbeddingDimensionError extends Error {
+  constructor(actualDimension: number) {
+    super(`Invalid embedding dimension: expected ${EXPECTED_EMBEDDING_DIMENSION}, got ${actualDimension}`)
+    this.name = 'EmbeddingDimensionError'
+  }
+}
+
+/**
+ * Validate that an embedding has the expected dimension.
+ *
+ * @param embedding - The embedding vector to validate
+ * @throws EmbeddingDimensionError if dimension is incorrect
+ */
+function validateEmbeddingDimension(embedding: number[]): void {
+  if (embedding.length !== EXPECTED_EMBEDDING_DIMENSION) {
+    throw new EmbeddingDimensionError(embedding.length)
+  }
+}
+
+/**
  * Generate an embedding for bookmark content.
  *
  * Combines title, blurb, summary, and key takeaways into a single
@@ -62,6 +90,9 @@ export async function generateBookmarkEmbedding(
     value: text,
   })
 
+  // Validate embedding dimension before returning
+  validateEmbeddingDimension(embedding)
+
   return embedding
 }
 
@@ -81,6 +112,9 @@ export async function generateQueryEmbedding(query: string): Promise<number[]> {
     model: google.textEmbeddingModel('text-embedding-004'),
     value: text,
   })
+
+  // Validate embedding dimension before returning
+  validateEmbeddingDimension(embedding)
 
   return embedding
 }

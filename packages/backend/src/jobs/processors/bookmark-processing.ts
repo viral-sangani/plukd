@@ -4,7 +4,11 @@ import { supabaseAdmin } from '../../config/supabase'
 import { extractContent } from '../../lib/extractors'
 import { extractOGMetadata } from '../../lib/extractors/og-metadata'
 import { processContentWithRetry } from '../../lib/ai/process'
-import { generateBookmarkEmbedding, formatEmbeddingForPostgres } from '../../lib/ai/embeddings'
+import {
+  generateBookmarkEmbedding,
+  formatEmbeddingForPostgres,
+  EXPECTED_EMBEDDING_DIMENSION,
+} from '../../lib/ai/embeddings'
 import { detectSource, generateFallbackTitle } from '@plukd/shared'
 import type { ProcessingStatus, ContentSource, ExtractedContent, RawMetadata } from '@plukd/shared'
 
@@ -232,6 +236,19 @@ export async function processBookmarkJob(job: Job<BookmarkProcessingJob>): Promi
         aiResult.summary,
         aiResult.keyTakeaways
       )
+
+      // Validate embedding dimension before saving to database
+      // This is a safety check in case the validation in generateBookmarkEmbedding
+      // is bypassed or the model returns unexpected dimensions
+      if (embedding.length !== EXPECTED_EMBEDDING_DIMENSION) {
+        console.warn(
+          `[processor] Invalid embedding dimension for bookmark ${bookmarkId}: expected ${EXPECTED_EMBEDDING_DIMENSION}, got ${embedding.length}. Skipping embedding save.`
+        )
+        // Continue without embedding rather than failing the entire processing
+        await job.updateProgress(100)
+        console.log(`[processor] Successfully processed bookmark ${bookmarkId} (without embedding)`)
+        return
+      }
 
       const embeddingLiteral = formatEmbeddingForPostgres(embedding)
       // RPC function defined in migration 013_add_semantic_search.sql

@@ -50,31 +50,37 @@ vi.mock('@supabase/supabase-js', () => ({
 
 // Mock Redis/ioredis
 vi.mock('ioredis', () => {
-  const MockRedis = vi.fn(() => ({
-    get: vi.fn().mockResolvedValue(null),
-    set: vi.fn().mockResolvedValue('OK'),
-    del: vi.fn().mockResolvedValue(1),
-    expire: vi.fn().mockResolvedValue(1),
-    exists: vi.fn().mockResolvedValue(0),
-    quit: vi.fn().mockResolvedValue('OK'),
-    disconnect: vi.fn(),
-    on: vi.fn(),
-  }));
-  return { default: MockRedis };
+  class MockRedis {
+    status = 'ready'
+    get = vi.fn().mockResolvedValue(null)
+    set = vi.fn().mockResolvedValue('OK')
+    del = vi.fn().mockResolvedValue(1)
+    expire = vi.fn().mockResolvedValue(1)
+    exists = vi.fn().mockResolvedValue(0)
+    quit = vi.fn().mockResolvedValue('OK')
+    disconnect = vi.fn()
+    on = vi.fn()
+    once = vi.fn()
+  }
+  return { default: MockRedis, Redis: MockRedis };
 });
 
 // Mock BullMQ
-vi.mock('bullmq', () => ({
-  Queue: vi.fn(() => ({
-    add: vi.fn().mockResolvedValue({ id: 'mock-job-id' }),
-    close: vi.fn().mockResolvedValue(undefined),
-    getJob: vi.fn().mockResolvedValue(null),
-  })),
-  Worker: vi.fn(() => ({
-    on: vi.fn(),
-    close: vi.fn().mockResolvedValue(undefined),
-  })),
-}));
+vi.mock('bullmq', () => {
+  class MockQueue {
+    add = vi.fn().mockResolvedValue({ id: 'mock-job-id' })
+    close = vi.fn().mockResolvedValue(undefined)
+    getJob = vi.fn().mockResolvedValue(null)
+  }
+  class MockWorker {
+    on = vi.fn()
+    close = vi.fn().mockResolvedValue(undefined)
+  }
+  return {
+    Queue: MockQueue,
+    Worker: MockWorker,
+  };
+});
 
 // Mock Grammy (Telegram bot)
 vi.mock('grammy', () => ({

@@ -56,6 +56,7 @@ vi.mock('../../../lib/ai/process', () => ({
 vi.mock('../../../lib/ai/embeddings', () => ({
   generateBookmarkEmbedding: vi.fn(),
   formatEmbeddingForPostgres: vi.fn(),
+  EXPECTED_EMBEDDING_DIMENSION: 768,
 }))
 
 // Mock shared utilities (these are already implemented in shared package)
@@ -768,13 +769,26 @@ describe('Bookmark Processing Pipeline', () => {
       expect(mockJob.updateProgress).toHaveBeenCalledWith(100)
     })
 
-    it('should handle invalid embedding format', async () => {
-      vi.mocked(generateBookmarkEmbedding).mockResolvedValue([]) // Invalid: empty array
+    it('should handle invalid embedding dimension gracefully', async () => {
+      // Mock embedding with wrong dimension (not 768)
+      vi.mocked(generateBookmarkEmbedding).mockResolvedValue(new Array(100).fill(0)) // Invalid: wrong dimension
+
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
       await processBookmarkJob(mockJob)
 
-      // Should still attempt to save
-      expect(vi.mocked(formatEmbeddingForPostgres)).toHaveBeenCalledWith([])
+      // Job should complete successfully (embedding is non-blocking)
+      expect(mockJob.updateProgress).toHaveBeenCalledWith(100)
+
+      // Should log warning about invalid dimension
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Invalid embedding dimension')
+      )
+
+      // Should NOT call formatEmbeddingForPostgres with invalid embedding
+      expect(vi.mocked(formatEmbeddingForPostgres)).not.toHaveBeenCalled()
+
+      consoleWarnSpy.mockRestore()
     })
   })
 

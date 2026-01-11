@@ -23,6 +23,76 @@ type BookmarkRow = Database['public']['Tables']['bookmarks']['Row']
 type BookmarkInsert = Database['public']['Tables']['bookmarks']['Insert']
 type BookmarkUpdate = Database['public']['Tables']['bookmarks']['Update']
 
+/**
+ * Keyword search parameters for reusable search function.
+ */
+interface KeywordSearchParams {
+  userId: string
+  searchTerm: string
+  limit?: number
+  includeArchived?: boolean
+}
+
+/**
+ * Keyword search result structure.
+ */
+interface KeywordSearchResult {
+  results: BookmarkRow[]
+  count: number
+}
+
+/**
+ * Perform keyword-based search on bookmarks.
+ *
+ * This function provides full-text search using PostgreSQL's TSVECTOR,
+ * ILIKE matching on URL, category, and array contains on tags.
+ *
+ * Used as the primary search in GET / endpoint and as fallback for
+ * semantic search when embedding generation or RPC fails.
+ *
+ * @param params - Search parameters including userId, searchTerm, limit, and includeArchived
+ * @returns Search results with bookmarks and total count
+ */
+async function searchBookmarksByKeyword(params: KeywordSearchParams): Promise<KeywordSearchResult> {
+  const { userId, searchTerm, limit = 10, includeArchived = false } = params
+
+  const trimmedSearch = searchTerm.trim()
+  const searchTermLower = trimmedSearch.toLowerCase()
+
+  // Build query with full-text search and ILIKE fallbacks
+  let dbQuery = supabaseAdmin
+    .from('bookmarks')
+    .select('*', { count: 'exact' })
+    .eq('user_id', userId)
+    .eq('is_archived', includeArchived)
+
+  // Apply search filters:
+  // 1. PostgreSQL full-text search on search_vector (title, blurb, summary, content)
+  // 2. ILIKE on URL for domain/path matching
+  // 3. ILIKE on category for category name matching
+  // 4. Array contains on tags for exact tag matching
+  dbQuery = dbQuery.or(
+    `search_vector.wfts(english).${trimmedSearch},url.ilike.%${trimmedSearch}%,category.ilike.%${trimmedSearch}%,tags.cs.{${searchTermLower}}`
+  )
+
+  // Order by relevance (created_at as proxy, ideally would use ts_rank)
+  dbQuery = dbQuery
+    .order('created_at', { ascending: false })
+    .limit(limit)
+
+  const { data: bookmarks, error, count } = await dbQuery
+
+  if (error) {
+    console.error('[bookmarks] Keyword search error:', error)
+    throw new Error(`Keyword search failed: ${error.message}`)
+  }
+
+  return {
+    results: (bookmarks as BookmarkRow[]) || [],
+    count: count || 0,
+  }
+}
+
 export const bookmarksRoutes = new Hono()
 
 // All routes require authentication
@@ -401,8 +471,47 @@ bookmarksRoutes.get('/search/semantic', async (c) => {
 
     console.log(`[bookmarks] Semantic search for user ${user.id}: "${params.q}"`)
 
+    // Helper to perform keyword search fallback
+    const performKeywordFallback = async (reason: string) => {
+      console.log(`[bookmarks] Falling back to keyword search: ${reason}`)
+      try {
+        const keywordResult = await searchBookmarksByKeyword({
+          userId: user.id,
+          searchTerm: params.q,
+          limit: params.limit,
+          includeArchived: params.includeArchived,
+        })
+
+        return c.json({
+          query: params.q,
+          results: keywordResult.results,
+          count: keywordResult.count,
+          usedFallback: true,
+          fallbackType: 'keyword' as const,
+          fallbackReason: reason,
+        })
+      } catch (keywordError) {
+        const keywordErrorMessage = keywordError instanceof Error ? keywordError.message : String(keywordError)
+        console.error('[bookmarks] Keyword search fallback also failed:', keywordErrorMessage)
+        // If keyword search also fails, return 503
+        return c.json({
+          error: 'Semantic search unavailable',
+          fallback: 'keyword',
+          message: reason,
+        }, 503)
+      }
+    }
+
     // Generate embedding for the search query
-    const queryEmbedding = await generateQueryEmbedding(params.q)
+    let queryEmbedding: number[]
+    try {
+      queryEmbedding = await generateQueryEmbedding(params.q)
+    } catch (embeddingError) {
+      const errorMessage = embeddingError instanceof Error ? embeddingError.message : String(embeddingError)
+      console.error('[bookmarks] Embedding generation failed:', errorMessage)
+      return performKeywordFallback(`Embedding generation failed: ${errorMessage}`)
+    }
+
     const embeddingLiteral = formatEmbeddingForPostgres(queryEmbedding)
 
     // Call semantic search RPC function (defined in migration 013_add_semantic_search.sql)
@@ -418,13 +527,8 @@ bookmarksRoutes.get('/search/semantic', async (c) => {
     )
 
     if (error) {
-      console.error('[bookmarks] Semantic search error:', error)
-      // Fall back to keyword search if semantic search fails
-      return c.json({
-        error: 'Semantic search unavailable',
-        fallback: 'keyword',
-        message: error.message,
-      }, 503)
+      console.error('[bookmarks] Semantic search RPC error:', error)
+      return performKeywordFallback(`RPC error: ${error.message}`)
     }
 
     const typedResults = results as SemanticSearchResult[] | null
