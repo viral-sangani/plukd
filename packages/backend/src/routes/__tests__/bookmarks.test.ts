@@ -23,34 +23,54 @@ import type {
   Tag,
 } from '@plukd/shared'
 
-// Mock Supabase admin client
-const createMockSupabaseChain = () => ({
-  from: vi.fn().mockReturnThis(),
-  select: vi.fn().mockReturnThis(),
-  insert: vi.fn().mockReturnThis(),
-  update: vi.fn().mockReturnThis(),
-  delete: vi.fn().mockReturnThis(),
-  eq: vi.fn().mockReturnThis(),
-  neq: vi.fn().mockReturnThis(),
-  in: vi.fn().mockReturnThis(),
-  is: vi.fn().mockReturnThis(),
-  not: vi.fn().mockReturnThis(),
-  gt: vi.fn().mockReturnThis(),
-  lt: vi.fn().mockReturnThis(),
-  gte: vi.fn().mockReturnThis(),
-  lte: vi.fn().mockReturnThis(),
-  like: vi.fn().mockReturnThis(),
-  ilike: vi.fn().mockReturnThis(),
-  contains: vi.fn().mockReturnThis(),
-  overlaps: vi.fn().mockReturnThis(),
-  or: vi.fn().mockReturnThis(),
-  order: vi.fn().mockReturnThis(),
-  range: vi.fn().mockReturnThis(),
-  limit: vi.fn().mockReturnThis(),
-  single: vi.fn(),
-  maybeSingle: vi.fn(),
-  rpc: vi.fn(),
-})
+// Mock Supabase admin client - creates chainable mock
+// Each method returns either 'this' for chaining or a promise for terminal methods
+const createMockSupabaseChain = () => {
+  // Create a chainable object that also acts as a promise
+  const createThenable = (defaultResponse: { data: unknown; error: unknown; count?: number | null }) => {
+    const thenable = {
+      _response: defaultResponse,
+      then(resolve: (value: unknown) => void, reject?: (reason?: unknown) => void) {
+        return Promise.resolve(this._response).then(resolve, reject)
+      },
+    }
+    return thenable
+  }
+
+  const chain: Record<string, any> = {}
+
+  // Chainable methods - return the chain object
+  const chainableMethods = [
+    'select', 'insert', 'update', 'delete',
+    'eq', 'neq', 'in', 'is', 'not',
+    'gt', 'lt', 'gte', 'lte',
+    'like', 'ilike', 'contains', 'overlaps', 'or',
+    'order',
+  ]
+
+  for (const method of chainableMethods) {
+    chain[method] = vi.fn().mockImplementation(() => chain)
+  }
+
+  // range() - typically terminal, returns a thenable that resolves with {data, count, error}
+  // Tests can override with mockResolvedValue
+  chain.range = vi.fn().mockResolvedValue({ data: [], error: null, count: 0 })
+
+  // limit() - typically terminal, returns a thenable
+  chain.limit = vi.fn().mockResolvedValue({ data: [], error: null, count: 0 })
+
+  // Terminal methods - return promises directly
+  chain.single = vi.fn().mockResolvedValue({ data: null, error: null })
+  chain.maybeSingle = vi.fn().mockResolvedValue({ data: null, error: null })
+
+  // from() method - returns the chain
+  chain.from = vi.fn().mockImplementation(() => chain)
+
+  // rpc() method - returns promise
+  chain.rpc = vi.fn().mockResolvedValue({ data: null, error: null })
+
+  return chain
+}
 
 // Mock queue
 vi.mock('../../jobs/queue', () => ({
@@ -60,20 +80,14 @@ vi.mock('../../jobs/queue', () => ({
 // Mock Supabase
 let mockSupabase: ReturnType<typeof createMockSupabaseChain>
 vi.mock('../../config/supabase', () => ({
-  supabaseAdmin: new Proxy(
-    {},
-    {
-      get(target, prop) {
-        if (prop === 'from') {
-          return mockSupabase.from
-        }
-        if (prop === 'rpc') {
-          return mockSupabase.rpc
-        }
-        return undefined
-      },
-    }
-  ),
+  supabaseAdmin: {
+    get from() {
+      return (...args: unknown[]) => mockSupabase.from(...args)
+    },
+    get rpc() {
+      return (...args: unknown[]) => mockSupabase.rpc(...args)
+    },
+  },
 }))
 
 // Mock AI embeddings
@@ -298,10 +312,14 @@ describe('Bookmarks Routes', () => {
     })
 
     describe('Cursor-based Pagination', () => {
+      // Helper to generate valid UUID v4 IDs for bookmarks (version nibble must be 1-8, variant nibble must be 8-b)
+      const makeUuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
+
       it('should return first page using cursor', async () => {
         const user = createTestUser()
+        const cursorId = makeUuid(0)
         const bookmarks = Array.from({ length: 26 }, (_, i) =>
-          createTestBookmark(`bookmark-${i}`, user.id, {
+          createTestBookmark(makeUuid(i + 1), user.id, {
             created_at: new Date(Date.now() - i * 1000).toISOString(),
           })
         )
@@ -309,16 +327,16 @@ describe('Bookmarks Routes', () => {
         // Mock cursor bookmark lookup
         mockSupabase.single.mockResolvedValueOnce({
           data: {
-            id: 'bookmark-0',
-            created_at: bookmarks[0].created_at,
-            title: bookmarks[0].title,
+            id: cursorId,
+            created_at: new Date().toISOString(),
+            title: 'Cursor Bookmark',
           },
           error: null,
         })
 
         // Mock main query with limit + 1
         mockSupabase.limit.mockResolvedValue({
-          data: bookmarks.slice(1, 27), // 26 items (1 extra to check hasNextPage)
+          data: bookmarks, // 26 items (1 extra to check hasNextPage)
           error: null,
           count: 100,
         })
@@ -328,7 +346,7 @@ describe('Bookmarks Routes', () => {
         )?.handler
 
         const ctx = createMockContext({
-          query: { cursor: 'bookmark-0', limit: '25' },
+          query: { cursor: cursorId, limit: '25' },
           user,
         })
         await handler?.(ctx, async () => {})
@@ -338,7 +356,7 @@ describe('Bookmarks Routes', () => {
           limit: 25,
           total: 100,
           hasNextPage: true,
-          nextCursor: 'bookmark-25',
+          nextCursor: makeUuid(25),
         })
         expect(response.data.bookmarks).toHaveLength(25)
         expect(mockSupabase.limit).toHaveBeenCalledWith(26)
@@ -346,13 +364,14 @@ describe('Bookmarks Routes', () => {
 
       it('should handle last page with cursor (no more items)', async () => {
         const user = createTestUser()
+        const cursorId = makeUuid(100)
         const bookmarks = Array.from({ length: 10 }, (_, i) =>
-          createTestBookmark(`bookmark-${i}`, user.id)
+          createTestBookmark(makeUuid(i + 1), user.id)
         )
 
         mockSupabase.single.mockResolvedValueOnce({
           data: {
-            id: 'cursor-bookmark',
+            id: cursorId,
             created_at: new Date().toISOString(),
             title: 'Cursor Bookmark',
           },
@@ -370,7 +389,7 @@ describe('Bookmarks Routes', () => {
         )?.handler
 
         const ctx = createMockContext({
-          query: { cursor: 'cursor-bookmark', limit: '25' },
+          query: { cursor: cursorId, limit: '25' },
           user,
         })
         await handler?.(ctx, async () => {})
@@ -420,10 +439,11 @@ describe('Bookmarks Routes', () => {
 
       it('should apply cursor filter with ascending sort', async () => {
         const user = createTestUser()
+        const cursorId = makeUuid(1)
 
         mockSupabase.single.mockResolvedValueOnce({
           data: {
-            id: 'cursor-id',
+            id: cursorId,
             created_at: '2024-01-01T00:00:00Z',
             title: 'Cursor Title',
           },
@@ -442,7 +462,7 @@ describe('Bookmarks Routes', () => {
 
         const ctx = createMockContext({
           query: {
-            cursor: 'cursor-id',
+            cursor: cursorId,
             sortBy: 'created_at',
             sortOrder: 'asc',
           },
@@ -458,10 +478,11 @@ describe('Bookmarks Routes', () => {
 
       it('should apply cursor filter with descending sort', async () => {
         const user = createTestUser()
+        const cursorId = makeUuid(2)
 
         mockSupabase.single.mockResolvedValueOnce({
           data: {
-            id: 'cursor-id',
+            id: cursorId,
             created_at: '2024-01-01T00:00:00Z',
             title: 'Cursor Title',
           },
@@ -480,7 +501,7 @@ describe('Bookmarks Routes', () => {
 
         const ctx = createMockContext({
           query: {
-            cursor: 'cursor-id',
+            cursor: cursorId,
             sortBy: 'created_at',
             sortOrder: 'desc',
           },
@@ -1155,7 +1176,7 @@ describe('Bookmarks Routes', () => {
         expect(response.data.error).toBe('Failed to create bookmark')
       })
 
-      it('should continue if enqueue fails (bookmark still created)', async () => {
+      it('should return error if enqueue fails', async () => {
         const { enqueueBookmarkProcessing } = await import('../../jobs/queue')
         vi.mocked(enqueueBookmarkProcessing).mockRejectedValueOnce(
           new Error('Queue error')
@@ -1175,8 +1196,12 @@ describe('Bookmarks Routes', () => {
           body: { url: 'https://example.com/article' },
         })
 
-        // Should throw because enqueue is awaited
-        await expect(handler?.(ctx, async () => {})).rejects.toThrow('Queue error')
+        await handler?.(ctx, async () => {})
+
+        // Handler catches the error and returns 500
+        const response = (ctx as any)._jsonResponses[0]
+        expect(response.status).toBe(500)
+        expect(response.data.error).toBe('Internal server error')
       })
     })
 
@@ -1237,63 +1262,62 @@ describe('Bookmarks Routes', () => {
   // GET /counts - Bookmark Counts
   // ============================================================
   describe('GET /counts - Bookmark Counts', () => {
+    // Helper to create a thenable chain for counts
+    const createCountsChain = (counts: {
+      total?: number
+      archived?: number
+      bySource?: Record<string, number>
+    }) => {
+      let callIndex = 0
+      const {
+        total = 0,
+        archived = 0,
+        bySource = { twitter: 0, reddit: 0, youtube: 0, linkedin: 0, instagram: 0, web: 0 },
+      } = counts
+
+      // Track which query we're on to return correct count
+      // Order: total, archived, twitter, reddit, youtube, linkedin, instagram, web
+      const expectedCounts = [
+        total,
+        archived,
+        bySource.twitter,
+        bySource.reddit,
+        bySource.youtube,
+        bySource.linkedin,
+        bySource.instagram,
+        bySource.web,
+      ]
+
+      const createChain = (): Record<string, any> => {
+        const chain: Record<string, any> = {}
+        chain.select = vi.fn().mockImplementation(() => chain)
+        chain.eq = vi.fn().mockImplementation(() => chain)
+        chain.then = (resolve: (value: unknown) => void) => {
+          const currentCount = expectedCounts[callIndex] ?? 0
+          callIndex++
+          return Promise.resolve({ count: currentCount, error: null, data: null }).then(resolve)
+        }
+        return chain
+      }
+
+      return vi.fn().mockImplementation(() => createChain())
+    }
+
     it('should return counts for all sources', async () => {
       const user = createTestUser()
 
-      // Mock total count
-      mockSupabase.eq.mockImplementation((field: string, value: unknown) => {
-        if (field === 'user_id' && value === user.id) {
-          return {
-            ...mockSupabase,
-            count: vi.fn().mockResolvedValue({ count: 100, error: null }),
-          }
-        }
-        return mockSupabase
+      mockSupabase.from = createCountsChain({
+        total: 100,
+        archived: 10,
+        bySource: {
+          twitter: 30,
+          reddit: 20,
+          youtube: 15,
+          linkedin: 10,
+          instagram: 5,
+          web: 20,
+        },
       })
-
-      // Mock per-source counts
-      const sourceCountMock = vi
-        .fn()
-        .mockImplementation(async (table: string) => {
-          if (table !== 'bookmarks') return mockSupabase
-          return {
-            ...mockSupabase,
-            select: vi.fn((cols: string, options?: any) => {
-              if (options?.count === 'exact' && options?.head === true) {
-                return {
-                  ...mockSupabase,
-                  eq: vi.fn((field: string, value: unknown) => {
-                    const chainWithCount = {
-                      ...mockSupabase,
-                      eq: vi.fn(() => chainWithCount),
-                    }
-                    // Return different counts per source
-                    if (field === 'source') {
-                      if (value === 'twitter') {
-                        chainWithCount.count = { count: 30, error: null }
-                        return chainWithCount
-                      }
-                      if (value === 'reddit') {
-                        chainWithCount.count = { count: 20, error: null }
-                        return chainWithCount
-                      }
-                      if (value === 'youtube') {
-                        chainWithCount.count = { count: 15, error: null }
-                        return chainWithCount
-                      }
-                      chainWithCount.count = { count: 0, error: null }
-                      return chainWithCount
-                    }
-                    return chainWithCount
-                  }),
-                }
-              }
-              return mockSupabase
-            }),
-          }
-        })
-
-      mockSupabase.from = sourceCountMock as any
 
       const handler = bookmarksRoutes.routes.find(
         (r) => r.method === 'GET' && r.path === '/counts'
@@ -1318,28 +1342,17 @@ describe('Bookmarks Routes', () => {
     })
 
     it('should return zero counts for new user', async () => {
-      mockSupabase.count = { count: 0, error: null }
+      mockSupabase.from = createCountsChain({
+        total: 0,
+        archived: 0,
+        bySource: { twitter: 0, reddit: 0, youtube: 0, linkedin: 0, instagram: 0, web: 0 },
+      })
 
       const handler = bookmarksRoutes.routes.find(
         (r) => r.method === 'GET' && r.path === '/counts'
       )?.handler
 
       const ctx = createMockContext({ path: '/counts' })
-
-      // Mock all count queries to return 0
-      mockSupabase.from = vi.fn(() => ({
-        ...mockSupabase,
-        select: vi.fn(() => ({
-          ...mockSupabase,
-          eq: vi.fn(() => ({
-            ...mockSupabase,
-            eq: vi.fn(() => ({
-              count: { count: 0, error: null },
-            })),
-          })),
-        })),
-      })) as any
-
       await handler?.(ctx, async () => {})
 
       const response = (ctx as any)._jsonResponses[0]
@@ -1358,15 +1371,18 @@ describe('Bookmarks Routes', () => {
     })
 
     it('should handle database error gracefully', async () => {
-      mockSupabase.from = vi.fn(() => ({
-        ...mockSupabase,
-        select: vi.fn(() => ({
-          ...mockSupabase,
-          eq: vi.fn(() => ({
-            count: { count: null, error: { message: 'Database error' } },
-          })),
-        })),
-      })) as any
+      // Create a chain that returns an error on the first query
+      const createErrorChain = (): Record<string, any> => {
+        const chain: Record<string, any> = {}
+        chain.select = vi.fn().mockImplementation(() => chain)
+        chain.eq = vi.fn().mockImplementation(() => chain)
+        chain.then = (resolve: (value: unknown) => void) => {
+          return Promise.resolve({ count: null, error: { message: 'Database error' }, data: null }).then(resolve)
+        }
+        return chain
+      }
+
+      mockSupabase.from = vi.fn().mockImplementation(() => createErrorChain())
 
       const handler = bookmarksRoutes.routes.find(
         (r) => r.method === 'GET' && r.path === '/counts'
@@ -1382,28 +1398,23 @@ describe('Bookmarks Routes', () => {
     it('should only count non-archived bookmarks for bySource', async () => {
       const user = createTestUser()
 
-      mockSupabase.from = vi.fn(() => ({
-        ...mockSupabase,
-        select: vi.fn((cols: string, options?: any) => ({
-          ...mockSupabase,
-          eq: vi.fn((field: string, value: unknown) => {
-            const chain = {
-              ...mockSupabase,
-              eq: vi.fn(() => chain),
-              count: { count: 0, error: null },
-            }
-            // Verify is_archived filter is applied
-            if (
-              field === 'is_archived' &&
-              value === false &&
-              options?.count === 'exact'
-            ) {
-              chain.count = { count: 50, error: null }
-            }
-            return chain
-          }),
-        })),
-      })) as any
+      // Track eq calls to verify is_archived filter
+      const eqCalls: Array<{ field: string; value: unknown }> = []
+
+      const createTrackingChain = (): Record<string, any> => {
+        const chain: Record<string, any> = {}
+        chain.select = vi.fn().mockImplementation(() => chain)
+        chain.eq = vi.fn().mockImplementation((field: string, value: unknown) => {
+          eqCalls.push({ field, value })
+          return chain
+        })
+        chain.then = (resolve: (value: unknown) => void) => {
+          return Promise.resolve({ count: 0, error: null, data: null }).then(resolve)
+        }
+        return chain
+      }
+
+      mockSupabase.from = vi.fn().mockImplementation(() => createTrackingChain())
 
       const handler = bookmarksRoutes.routes.find(
         (r) => r.method === 'GET' && r.path === '/counts'
@@ -1412,8 +1423,11 @@ describe('Bookmarks Routes', () => {
       const ctx = createMockContext({ path: '/counts', user })
       await handler?.(ctx, async () => {})
 
-      // Should have called eq('is_archived', false) for source counts
-      // This is verified by the mock implementation above
+      // Verify is_archived filter was called with false
+      const isArchivedCalls = eqCalls.filter((c) => c.field === 'is_archived')
+      expect(isArchivedCalls.length).toBeGreaterThan(0)
+      // Most calls should be for non-archived (false)
+      expect(isArchivedCalls.some((c) => c.value === false)).toBe(true)
     })
   })
 

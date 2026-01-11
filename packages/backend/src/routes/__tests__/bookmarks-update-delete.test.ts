@@ -13,31 +13,64 @@ import type { Context } from 'hono'
 import { bookmarksRoutes } from '../bookmarks'
 import type { Category, Tag } from '@plukd/shared'
 
-// Mock Supabase admin client
-const createMockSupabaseChain = () => ({
-  from: vi.fn().mockReturnThis(),
-  select: vi.fn().mockReturnThis(),
-  update: vi.fn().mockReturnThis(),
-  delete: vi.fn().mockReturnThis(),
-  eq: vi.fn().mockReturnThis(),
-  in: vi.fn().mockReturnThis(),
-  single: vi.fn(),
-})
+// Mock Supabase admin client - creates chainable mock that is also thenable
+const createMockSupabaseChain = () => {
+  // Default response when the chain is awaited
+  let pendingResponse: { data: unknown; error: unknown; count?: number | null } = { data: null, error: null }
+
+  const chain: Record<string, any> = {}
+
+  // Make chain thenable - when awaited, resolve with pendingResponse
+  chain.then = (resolve: (value: unknown) => void, reject?: (reason?: unknown) => void) => {
+    return Promise.resolve(pendingResponse).then(resolve, reject)
+  }
+
+  // Chainable methods - return the chain object
+  const chainableMethods = [
+    'select', 'insert', 'update', 'delete',
+    'eq', 'neq', 'in', 'is', 'not',
+    'gt', 'lt', 'gte', 'lte',
+    'like', 'ilike', 'contains', 'overlaps', 'or',
+    'order',
+  ]
+
+  for (const method of chainableMethods) {
+    chain[method] = vi.fn().mockImplementation(() => chain)
+  }
+
+  // range() and limit() - typically terminal, return thenable chain
+  chain.range = vi.fn().mockResolvedValue({ data: [], error: null, count: 0 })
+  chain.limit = vi.fn().mockResolvedValue({ data: [], error: null, count: 0 })
+
+  // Terminal methods - return promises directly
+  chain.single = vi.fn().mockResolvedValue({ data: null, error: null })
+  chain.maybeSingle = vi.fn().mockResolvedValue({ data: null, error: null })
+
+  // from() method - returns the chain
+  chain.from = vi.fn().mockImplementation(() => chain)
+
+  // rpc() method - returns promise
+  chain.rpc = vi.fn().mockResolvedValue({ data: null, error: null })
+
+  // Helper to set the pending response for thenable resolution
+  chain._setResponse = (response: { data: unknown; error: unknown; count?: number | null }) => {
+    pendingResponse = response
+  }
+
+  return chain
+}
 
 // Mock Supabase
 let mockSupabase: ReturnType<typeof createMockSupabaseChain>
 vi.mock('../../config/supabase', () => ({
-  supabaseAdmin: new Proxy(
-    {},
-    {
-      get(target, prop) {
-        if (prop === 'from') {
-          return mockSupabase.from
-        }
-        return undefined
-      },
-    }
-  ),
+  supabaseAdmin: {
+    get from() {
+      return (...args: unknown[]) => mockSupabase.from(...args)
+    },
+    get rpc() {
+      return (...args: unknown[]) => mockSupabase.rpc(...args)
+    },
+  },
 }))
 
 // Test data factories
@@ -113,7 +146,7 @@ describe('Bookmarks Update and Delete Operations', () => {
     describe('Happy Path', () => {
       it('should update title', async () => {
         const user = createTestUser()
-        const bookmarkId = '00000000-0000-0000-0000-000000000001'
+        const bookmarkId = '00000000-0000-4000-8000-000000000001'
         const updatedBookmark = createTestBookmark(bookmarkId, user.id, {
           title: 'Updated Title',
         })
@@ -142,7 +175,7 @@ describe('Bookmarks Update and Delete Operations', () => {
 
       it('should update category', async () => {
         const user = createTestUser()
-        const bookmarkId = '00000000-0000-0000-0000-000000000001'
+        const bookmarkId = '00000000-0000-4000-8000-000000000001'
         const updatedBookmark = createTestBookmark(bookmarkId, user.id, {
           category: 'ai',
         })
@@ -171,7 +204,7 @@ describe('Bookmarks Update and Delete Operations', () => {
 
       it('should update tags', async () => {
         const user = createTestUser()
-        const bookmarkId = '00000000-0000-0000-0000-000000000001'
+        const bookmarkId = '00000000-0000-4000-8000-000000000001'
         const newTags = ['guide', 'tutorial', 'news']
         const updatedBookmark = createTestBookmark(bookmarkId, user.id, {
           tags: newTags,
@@ -201,7 +234,7 @@ describe('Bookmarks Update and Delete Operations', () => {
 
       it('should update blurb', async () => {
         const user = createTestUser()
-        const bookmarkId = '00000000-0000-0000-0000-000000000001'
+        const bookmarkId = '00000000-0000-4000-8000-000000000001'
         const updatedBookmark = createTestBookmark(bookmarkId, user.id, {
           blurb: 'Updated blurb',
         })
@@ -230,7 +263,7 @@ describe('Bookmarks Update and Delete Operations', () => {
 
       it('should update summary', async () => {
         const user = createTestUser()
-        const bookmarkId = '00000000-0000-0000-0000-000000000001'
+        const bookmarkId = '00000000-0000-4000-8000-000000000001'
         const updatedBookmark = createTestBookmark(bookmarkId, user.id, {
           summary: 'Updated summary',
         })
@@ -259,7 +292,7 @@ describe('Bookmarks Update and Delete Operations', () => {
 
       it('should update multiple fields at once', async () => {
         const user = createTestUser()
-        const bookmarkId = '00000000-0000-0000-0000-000000000001'
+        const bookmarkId = '00000000-0000-4000-8000-000000000001'
         const updatedBookmark = createTestBookmark(bookmarkId, user.id, {
           title: 'New Title',
           category: 'ai',
@@ -299,7 +332,7 @@ describe('Bookmarks Update and Delete Operations', () => {
 
       it('should update updated_at timestamp', async () => {
         const user = createTestUser()
-        const bookmarkId = '00000000-0000-0000-0000-000000000001'
+        const bookmarkId = '00000000-0000-4000-8000-000000000001'
 
         mockSupabase.single
           .mockResolvedValueOnce({ data: { id: bookmarkId }, error: null })
@@ -346,7 +379,7 @@ describe('Bookmarks Update and Delete Operations', () => {
 
       it('should reject invalid category', async () => {
         const user = createTestUser()
-        const bookmarkId = '00000000-0000-0000-0000-000000000001'
+        const bookmarkId = '00000000-0000-4000-8000-000000000001'
 
         mockSupabase.single.mockResolvedValueOnce({
           data: { id: bookmarkId },
@@ -371,7 +404,7 @@ describe('Bookmarks Update and Delete Operations', () => {
 
       it('should reject invalid tags', async () => {
         const user = createTestUser()
-        const bookmarkId = '00000000-0000-0000-0000-000000000001'
+        const bookmarkId = '00000000-0000-4000-8000-000000000001'
 
         mockSupabase.single.mockResolvedValueOnce({
           data: { id: bookmarkId },
@@ -397,7 +430,7 @@ describe('Bookmarks Update and Delete Operations', () => {
     describe('Forbidden Fields', () => {
       it('should NOT update is_archived via PUT', async () => {
         const user = createTestUser()
-        const bookmarkId = '00000000-0000-0000-0000-000000000001'
+        const bookmarkId = '00000000-0000-4000-8000-000000000001'
 
         mockSupabase.single
           .mockResolvedValueOnce({ data: { id: bookmarkId }, error: null })
@@ -437,7 +470,7 @@ describe('Bookmarks Update and Delete Operations', () => {
         )?.handler
 
         const ctx = createMockContext({
-          params: { id: '00000000-0000-0000-0000-000000000001' },
+          params: { id: '00000000-0000-4000-8000-000000000001' },
           body: { title: 'Test' },
         })
         await handler?.(ctx, async () => {})
@@ -460,7 +493,7 @@ describe('Bookmarks Update and Delete Operations', () => {
         )?.handler
 
         const ctx = createMockContext({
-          params: { id: '00000000-0000-0000-0000-000000000001' },
+          params: { id: '00000000-0000-4000-8000-000000000001' },
           body: { title: 'Test' },
           user: userA,
         })
@@ -472,7 +505,7 @@ describe('Bookmarks Update and Delete Operations', () => {
 
       it('should handle database update error', async () => {
         const user = createTestUser()
-        const bookmarkId = '00000000-0000-0000-0000-000000000001'
+        const bookmarkId = '00000000-0000-4000-8000-000000000001'
 
         mockSupabase.single
           .mockResolvedValueOnce({ data: { id: bookmarkId }, error: null })
@@ -501,7 +534,7 @@ describe('Bookmarks Update and Delete Operations', () => {
     describe('Edge Cases', () => {
       it('should handle empty update object (only updated_at changes)', async () => {
         const user = createTestUser()
-        const bookmarkId = '00000000-0000-0000-0000-000000000001'
+        const bookmarkId = '00000000-0000-4000-8000-000000000001'
 
         mockSupabase.single
           .mockResolvedValueOnce({ data: { id: bookmarkId }, error: null })
@@ -530,7 +563,7 @@ describe('Bookmarks Update and Delete Operations', () => {
 
       it('should ignore extra unknown fields', async () => {
         const user = createTestUser()
-        const bookmarkId = '00000000-0000-0000-0000-000000000001'
+        const bookmarkId = '00000000-0000-4000-8000-000000000001'
 
         mockSupabase.single
           .mockResolvedValueOnce({ data: { id: bookmarkId }, error: null })
@@ -570,7 +603,7 @@ describe('Bookmarks Update and Delete Operations', () => {
   describe('PATCH /:id - Update Bookmark (Partial)', () => {
     it('should update is_archived to true', async () => {
       const user = createTestUser()
-      const bookmarkId = '00000000-0000-0000-0000-000000000001'
+      const bookmarkId = '00000000-0000-4000-8000-000000000001'
 
       mockSupabase.single
         .mockResolvedValueOnce({ data: { id: bookmarkId }, error: null })
@@ -600,7 +633,7 @@ describe('Bookmarks Update and Delete Operations', () => {
 
     it('should update is_archived to false', async () => {
       const user = createTestUser()
-      const bookmarkId = '00000000-0000-0000-0000-000000000001'
+      const bookmarkId = '00000000-0000-4000-8000-000000000001'
 
       mockSupabase.single
         .mockResolvedValueOnce({ data: { id: bookmarkId }, error: null })
@@ -630,7 +663,7 @@ describe('Bookmarks Update and Delete Operations', () => {
 
     it('should update both is_archived and other fields', async () => {
       const user = createTestUser()
-      const bookmarkId = '00000000-0000-0000-0000-000000000001'
+      const bookmarkId = '00000000-0000-4000-8000-000000000001'
 
       mockSupabase.single
         .mockResolvedValueOnce({ data: { id: bookmarkId }, error: null })
@@ -666,7 +699,7 @@ describe('Bookmarks Update and Delete Operations', () => {
 
     it('should ignore non-boolean is_archived value', async () => {
       const user = createTestUser()
-      const bookmarkId = '00000000-0000-0000-0000-000000000001'
+      const bookmarkId = '00000000-0000-4000-8000-000000000001'
 
       mockSupabase.single
         .mockResolvedValueOnce({ data: { id: bookmarkId }, error: null })
@@ -706,9 +739,9 @@ describe('Bookmarks Update and Delete Operations', () => {
       it('should archive multiple bookmarks', async () => {
         const user = createTestUser()
         const ids = [
-          '00000000-0000-0000-0000-000000000001',
-          '00000000-0000-0000-0000-000000000002',
-          '00000000-0000-0000-0000-000000000003',
+          '00000000-0000-4000-8000-000000000001',
+          '00000000-0000-4000-8000-000000000002',
+          '00000000-0000-4000-8000-000000000003',
         ]
 
         mockSupabase.select.mockResolvedValue({
@@ -748,8 +781,8 @@ describe('Bookmarks Update and Delete Operations', () => {
       it('should unarchive multiple bookmarks', async () => {
         const user = createTestUser()
         const ids = [
-          '00000000-0000-0000-0000-000000000001',
-          '00000000-0000-0000-0000-000000000002',
+          '00000000-0000-4000-8000-000000000001',
+          '00000000-0000-4000-8000-000000000002',
         ]
 
         mockSupabase.select.mockResolvedValue({
@@ -787,7 +820,7 @@ describe('Bookmarks Update and Delete Operations', () => {
 
       it('should archive single bookmark', async () => {
         const user = createTestUser()
-        const ids = ['00000000-0000-0000-0000-000000000001']
+        const ids = ['00000000-0000-4000-8000-000000000001']
 
         mockSupabase.select.mockResolvedValue({
           data: [createTestBookmark(ids[0], user.id, { is_archived: true })],
@@ -838,7 +871,7 @@ describe('Bookmarks Update and Delete Operations', () => {
           method: 'PATCH',
           path: '/bulk-archive',
           body: {
-            ids: ['00000000-0000-0000-0000-000000000001', 'invalid-uuid'],
+            ids: ['00000000-0000-4000-8000-000000000001', 'invalid-uuid'],
             archived: true,
           },
         })
@@ -857,7 +890,7 @@ describe('Bookmarks Update and Delete Operations', () => {
           method: 'PATCH',
           path: '/bulk-archive',
           body: {
-            ids: ['00000000-0000-0000-0000-000000000001'],
+            ids: ['00000000-0000-4000-8000-000000000001'],
             archived: 'true',
           },
         })
@@ -872,12 +905,12 @@ describe('Bookmarks Update and Delete Operations', () => {
       it('should only update user own bookmarks (partial match)', async () => {
         const userA = createTestUser('user-a')
         const userAIds = [
-          '00000000-0000-0000-0000-000000000001',
-          '00000000-0000-0000-0000-000000000002',
+          '00000000-0000-4000-8000-000000000001',
+          '00000000-0000-4000-8000-000000000002',
         ]
         const userBIds = [
-          '00000000-0000-0000-0000-000000000003',
-          '00000000-0000-0000-0000-000000000004',
+          '00000000-0000-4000-8000-000000000003',
+          '00000000-0000-4000-8000-000000000004',
         ]
 
         // Mock only updating userA's bookmarks
@@ -908,8 +941,8 @@ describe('Bookmarks Update and Delete Operations', () => {
       it('should return updated: 0 when no ids match user', async () => {
         const userA = createTestUser('user-a')
         const userBIds = [
-          '00000000-0000-0000-0000-000000000003',
-          '00000000-0000-0000-0000-000000000004',
+          '00000000-0000-4000-8000-000000000003',
+          '00000000-0000-4000-8000-000000000004',
         ]
 
         mockSupabase.select.mockResolvedValue({
@@ -937,7 +970,7 @@ describe('Bookmarks Update and Delete Operations', () => {
     describe('Edge Cases', () => {
       it('should handle duplicate ids in array', async () => {
         const user = createTestUser()
-        const id = '00000000-0000-0000-0000-000000000001'
+        const id = '00000000-0000-4000-8000-000000000001'
         const duplicateIds = [id, id, id]
 
         mockSupabase.select.mockResolvedValue({
@@ -964,7 +997,7 @@ describe('Bookmarks Update and Delete Operations', () => {
       it('should handle large array (100+ ids)', async () => {
         const user = createTestUser()
         const ids = Array.from({ length: 150 }, (_, i) =>
-          `00000000-0000-0000-0000-${String(i).padStart(12, '0')}`
+          `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`
         )
 
         mockSupabase.select.mockResolvedValue({
@@ -1006,7 +1039,7 @@ describe('Bookmarks Update and Delete Operations', () => {
           method: 'PATCH',
           path: '/bulk-archive',
           body: {
-            ids: ['00000000-0000-0000-0000-000000000001'],
+            ids: ['00000000-0000-4000-8000-000000000001'],
             archived: true,
           },
         })
@@ -1026,12 +1059,9 @@ describe('Bookmarks Update and Delete Operations', () => {
     describe('Happy Path', () => {
       it('should delete existing bookmark', async () => {
         const user = createTestUser()
-        const bookmarkId = '00000000-0000-0000-0000-000000000001'
+        const bookmarkId = '00000000-0000-4000-8000-000000000001'
 
-        mockSupabase.eq.mockResolvedValue({
-          data: null,
-          error: null,
-        })
+        // Chain is thenable and resolves with default { data: null, error: null }
 
         const handler = bookmarksRoutes.routes.find(
           (r) => r.method === 'DELETE' && r.path === '/:id'
@@ -1073,10 +1103,7 @@ describe('Bookmarks Update and Delete Operations', () => {
 
     describe('No-op Cases', () => {
       it('should return success for non-existent bookmark (idempotent)', async () => {
-        mockSupabase.eq.mockResolvedValue({
-          data: null,
-          error: null,
-        })
+        // Chain is thenable and resolves with default { data: null, error: null }
 
         const handler = bookmarksRoutes.routes.find(
           (r) => r.method === 'DELETE' && r.path === '/:id'
@@ -1084,7 +1111,7 @@ describe('Bookmarks Update and Delete Operations', () => {
 
         const ctx = createMockContext({
           method: 'DELETE',
-          params: { id: '00000000-0000-0000-0000-000000000099' },
+          params: { id: '00000000-0000-4000-8000-000000000099' },
         })
         await handler?.(ctx, async () => {})
 
@@ -1095,10 +1122,7 @@ describe('Bookmarks Update and Delete Operations', () => {
       it('should return success for other users bookmark (RLS filters it out)', async () => {
         const userA = createTestUser('user-a')
 
-        mockSupabase.eq.mockResolvedValue({
-          data: null,
-          error: null,
-        })
+        // Chain is thenable and resolves with default { data: null, error: null }
 
         const handler = bookmarksRoutes.routes.find(
           (r) => r.method === 'DELETE' && r.path === '/:id'
@@ -1106,7 +1130,7 @@ describe('Bookmarks Update and Delete Operations', () => {
 
         const ctx = createMockContext({
           method: 'DELETE',
-          params: { id: '00000000-0000-0000-0000-000000000001' },
+          params: { id: '00000000-0000-4000-8000-000000000001' },
           user: userA,
         })
         await handler?.(ctx, async () => {})
@@ -1119,7 +1143,8 @@ describe('Bookmarks Update and Delete Operations', () => {
 
     describe('Error Cases', () => {
       it('should handle database error', async () => {
-        mockSupabase.eq.mockResolvedValue({
+        // Set error response for delete chain
+        mockSupabase._setResponse({
           data: null,
           error: { message: 'Database error' },
         })
@@ -1130,7 +1155,7 @@ describe('Bookmarks Update and Delete Operations', () => {
 
         const ctx = createMockContext({
           method: 'DELETE',
-          params: { id: '00000000-0000-0000-0000-000000000001' },
+          params: { id: '00000000-0000-4000-8000-000000000001' },
         })
         await handler?.(ctx, async () => {})
 
@@ -1144,10 +1169,7 @@ describe('Bookmarks Update and Delete Operations', () => {
       it('should verify user_id filter is applied', async () => {
         const user = createTestUser('user-123')
 
-        mockSupabase.eq.mockResolvedValue({
-          data: null,
-          error: null,
-        })
+        // Chain is thenable and resolves with default { data: null, error: null }
 
         const handler = bookmarksRoutes.routes.find(
           (r) => r.method === 'DELETE' && r.path === '/:id'
@@ -1155,7 +1177,7 @@ describe('Bookmarks Update and Delete Operations', () => {
 
         const ctx = createMockContext({
           method: 'DELETE',
-          params: { id: '00000000-0000-0000-0000-000000000001' },
+          params: { id: '00000000-0000-4000-8000-000000000001' },
           user,
         })
         await handler?.(ctx, async () => {})

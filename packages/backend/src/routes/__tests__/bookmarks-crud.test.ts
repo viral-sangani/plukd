@@ -15,18 +15,52 @@ import type { Context } from 'hono'
 import { bookmarksRoutes } from '../bookmarks'
 import type { ProcessingStatus, Category, Tag } from '@plukd/shared'
 
-// Mock Supabase admin client
-const createMockSupabaseChain = () => ({
-  from: vi.fn().mockReturnThis(),
-  select: vi.fn().mockReturnThis(),
-  insert: vi.fn().mockReturnThis(),
-  update: vi.fn().mockReturnThis(),
-  delete: vi.fn().mockReturnThis(),
-  eq: vi.fn().mockReturnThis(),
-  neq: vi.fn().mockReturnThis(),
-  in: vi.fn().mockReturnThis(),
-  single: vi.fn(),
-})
+// Mock Supabase admin client - creates chainable mock that is also thenable
+const createMockSupabaseChain = () => {
+  // Default response when the chain is awaited
+  let pendingResponse: { data: unknown; error: unknown; count?: number | null } = { data: null, error: null }
+
+  const chain: Record<string, any> = {}
+
+  // Make chain thenable - when awaited, resolve with pendingResponse
+  chain.then = (resolve: (value: unknown) => void, reject?: (reason?: unknown) => void) => {
+    return Promise.resolve(pendingResponse).then(resolve, reject)
+  }
+
+  // Chainable methods - return the chain object
+  const chainableMethods = [
+    'select', 'insert', 'update', 'delete',
+    'eq', 'neq', 'in', 'is', 'not',
+    'gt', 'lt', 'gte', 'lte',
+    'like', 'ilike', 'contains', 'overlaps', 'or',
+    'order',
+  ]
+
+  for (const method of chainableMethods) {
+    chain[method] = vi.fn().mockImplementation(() => chain)
+  }
+
+  // range() and limit() - typically terminal, return thenable chain
+  chain.range = vi.fn().mockResolvedValue({ data: [], error: null, count: 0 })
+  chain.limit = vi.fn().mockResolvedValue({ data: [], error: null, count: 0 })
+
+  // Terminal methods - return promises directly
+  chain.single = vi.fn().mockResolvedValue({ data: null, error: null })
+  chain.maybeSingle = vi.fn().mockResolvedValue({ data: null, error: null })
+
+  // from() method - returns the chain
+  chain.from = vi.fn().mockImplementation(() => chain)
+
+  // rpc() method - returns promise
+  chain.rpc = vi.fn().mockResolvedValue({ data: null, error: null })
+
+  // Helper to set the pending response for thenable resolution
+  chain._setResponse = (response: { data: unknown; error: unknown; count?: number | null }) => {
+    pendingResponse = response
+  }
+
+  return chain
+}
 
 // Mock queue
 vi.mock('../../jobs/queue', () => ({
@@ -36,17 +70,14 @@ vi.mock('../../jobs/queue', () => ({
 // Mock Supabase
 let mockSupabase: ReturnType<typeof createMockSupabaseChain>
 vi.mock('../../config/supabase', () => ({
-  supabaseAdmin: new Proxy(
-    {},
-    {
-      get(target, prop) {
-        if (prop === 'from') {
-          return mockSupabase.from
-        }
-        return undefined
-      },
-    }
-  ),
+  supabaseAdmin: {
+    get from() {
+      return (...args: unknown[]) => mockSupabase.from(...args)
+    },
+    get rpc() {
+      return (...args: unknown[]) => mockSupabase.rpc(...args)
+    },
+  },
 }))
 
 // Test data factories
@@ -126,7 +157,7 @@ describe('Bookmarks CRUD Operations', () => {
     describe('Happy Path', () => {
       it('should reprocess bookmark and reset status to pending', async () => {
         const user = createTestUser()
-        const bookmarkId = '00000000-0000-0000-0000-000000000001'
+        const bookmarkId = '00000000-0000-4000-8000-000000000001'
         const bookmark = createTestBookmark(bookmarkId, user.id, {
           title: 'Good Title',
           url: 'https://example.com/article',
@@ -134,15 +165,14 @@ describe('Bookmarks CRUD Operations', () => {
           processing_error: 'Previous error',
         })
 
+        // Mock the initial fetch (uses .single())
         mockSupabase.single.mockResolvedValueOnce({
           data: bookmark,
           error: null,
         })
 
-        mockSupabase.eq.mockResolvedValue({
-          data: null,
-          error: null,
-        })
+        // The chain is thenable, so update chain will resolve with default response
+        // (which is { data: null, error: null })
 
         const handler = bookmarksRoutes.routes.find(
           (r) => r.method === 'POST' && r.path === '/process'
@@ -171,7 +201,7 @@ describe('Bookmarks CRUD Operations', () => {
 
       it('should clear bad title when reprocessing', async () => {
         const user = createTestUser()
-        const bookmarkId = '00000000-0000-0000-0000-000000000001'
+        const bookmarkId = '00000000-0000-4000-8000-000000000001'
         const url = 'https://example.com/article'
         const bookmark = createTestBookmark(bookmarkId, user.id, {
           title: 'Untitled',
@@ -183,10 +213,7 @@ describe('Bookmarks CRUD Operations', () => {
           error: null,
         })
 
-        mockSupabase.eq.mockResolvedValue({
-          data: null,
-          error: null,
-        })
+        // Chain is thenable and resolves with default { data: null, error: null }
 
         const handler = bookmarksRoutes.routes.find(
           (r) => r.method === 'POST' && r.path === '/process'
@@ -207,7 +234,7 @@ describe('Bookmarks CRUD Operations', () => {
 
       it('should preserve good title when reprocessing', async () => {
         const user = createTestUser()
-        const bookmarkId = '00000000-0000-0000-0000-000000000001'
+        const bookmarkId = '00000000-0000-4000-8000-000000000001'
         const bookmark = createTestBookmark(bookmarkId, user.id, {
           title: 'How to Build a Great App',
           url: 'https://example.com/article',
@@ -218,10 +245,7 @@ describe('Bookmarks CRUD Operations', () => {
           error: null,
         })
 
-        mockSupabase.eq.mockResolvedValue({
-          data: null,
-          error: null,
-        })
+        // Chain is thenable and resolves with default { data: null, error: null }
 
         const handler = bookmarksRoutes.routes.find(
           (r) => r.method === 'POST' && r.path === '/process'
@@ -244,7 +268,7 @@ describe('Bookmarks CRUD Operations', () => {
       it('should enqueue processing job', async () => {
         const { enqueueBookmarkProcessing } = await import('../../jobs/queue')
         const user = createTestUser()
-        const bookmarkId = '00000000-0000-0000-0000-000000000001'
+        const bookmarkId = '00000000-0000-4000-8000-000000000001'
         const url = 'https://example.com/article'
         const bookmark = createTestBookmark(bookmarkId, user.id, { url })
 
@@ -253,10 +277,7 @@ describe('Bookmarks CRUD Operations', () => {
           error: null,
         })
 
-        mockSupabase.eq.mockResolvedValue({
-          data: null,
-          error: null,
-        })
+        // Chain is thenable and resolves with default { data: null, error: null }
 
         const handler = bookmarksRoutes.routes.find(
           (r) => r.method === 'POST' && r.path === '/process'
@@ -319,7 +340,7 @@ describe('Bookmarks CRUD Operations', () => {
         )?.handler
 
         const ctx = createMockContext({
-          body: { bookmarkId: '00000000-0000-0000-0000-000000000001' },
+          body: { bookmarkId: '00000000-0000-4000-8000-000000000001' },
         })
         await handler?.(ctx, async () => {})
 
@@ -331,7 +352,7 @@ describe('Bookmarks CRUD Operations', () => {
       it('should return 404 when bookmark belongs to other user', async () => {
         const userA = createTestUser('user-a')
         const bookmark = createTestBookmark(
-          '00000000-0000-0000-0000-000000000001',
+          '00000000-0000-4000-8000-000000000001',
           'user-b'
         )
 
@@ -345,7 +366,7 @@ describe('Bookmarks CRUD Operations', () => {
         )?.handler
 
         const ctx = createMockContext({
-          body: { bookmarkId: '00000000-0000-0000-0000-000000000001' },
+          body: { bookmarkId: '00000000-0000-4000-8000-000000000001' },
           user: userA,
         })
         await handler?.(ctx, async () => {})
@@ -357,7 +378,7 @@ describe('Bookmarks CRUD Operations', () => {
       it('should handle database update error', async () => {
         const user = createTestUser()
         const bookmark = createTestBookmark(
-          '00000000-0000-0000-0000-000000000001',
+          '00000000-0000-4000-8000-000000000001',
           user.id
         )
 
@@ -366,7 +387,8 @@ describe('Bookmarks CRUD Operations', () => {
           error: null,
         })
 
-        mockSupabase.eq.mockResolvedValue({
+        // Set the pending response to include an error for the update chain
+        mockSupabase._setResponse({
           data: null,
           error: { message: 'Database error' },
         })
@@ -376,7 +398,7 @@ describe('Bookmarks CRUD Operations', () => {
         )?.handler
 
         const ctx = createMockContext({
-          body: { bookmarkId: '00000000-0000-0000-0000-000000000001' },
+          body: { bookmarkId: '00000000-0000-4000-8000-000000000001' },
           user,
         })
         await handler?.(ctx, async () => {})
@@ -391,7 +413,7 @@ describe('Bookmarks CRUD Operations', () => {
       it('should handle bookmark already processing', async () => {
         const user = createTestUser()
         const bookmark = createTestBookmark(
-          '00000000-0000-0000-0000-000000000001',
+          '00000000-0000-4000-8000-000000000001',
           user.id,
           {
             processing_status: 'processing',
@@ -403,17 +425,14 @@ describe('Bookmarks CRUD Operations', () => {
           error: null,
         })
 
-        mockSupabase.eq.mockResolvedValue({
-          data: null,
-          error: null,
-        })
+        // Chain is thenable and resolves with default { data: null, error: null }
 
         const handler = bookmarksRoutes.routes.find(
           (r) => r.method === 'POST' && r.path === '/process'
         )?.handler
 
         const ctx = createMockContext({
-          body: { bookmarkId: '00000000-0000-0000-0000-000000000001' },
+          body: { bookmarkId: '00000000-0000-4000-8000-000000000001' },
           user,
         })
         await handler?.(ctx, async () => {})
@@ -429,7 +448,7 @@ describe('Bookmarks CRUD Operations', () => {
       it('should handle bookmark already completed', async () => {
         const user = createTestUser()
         const bookmark = createTestBookmark(
-          '00000000-0000-0000-0000-000000000001',
+          '00000000-0000-4000-8000-000000000001',
           user.id,
           {
             processing_status: 'completed',
@@ -441,17 +460,14 @@ describe('Bookmarks CRUD Operations', () => {
           error: null,
         })
 
-        mockSupabase.eq.mockResolvedValue({
-          data: null,
-          error: null,
-        })
+        // Chain is thenable and resolves with default { data: null, error: null }
 
         const handler = bookmarksRoutes.routes.find(
           (r) => r.method === 'POST' && r.path === '/process'
         )?.handler
 
         const ctx = createMockContext({
-          body: { bookmarkId: '00000000-0000-0000-0000-000000000001' },
+          body: { bookmarkId: '00000000-0000-4000-8000-000000000001' },
           user,
         })
         await handler?.(ctx, async () => {})
@@ -464,7 +480,7 @@ describe('Bookmarks CRUD Operations', () => {
         const user = createTestUser()
         const url = 'https://example.com/article'
         const bookmark = createTestBookmark(
-          '00000000-0000-0000-0000-000000000001',
+          '00000000-0000-4000-8000-000000000001',
           user.id,
           {
             title: url,
@@ -477,17 +493,14 @@ describe('Bookmarks CRUD Operations', () => {
           error: null,
         })
 
-        mockSupabase.eq.mockResolvedValue({
-          data: null,
-          error: null,
-        })
+        // Chain is thenable and resolves with default { data: null, error: null }
 
         const handler = bookmarksRoutes.routes.find(
           (r) => r.method === 'POST' && r.path === '/process'
         )?.handler
 
         const ctx = createMockContext({
-          body: { bookmarkId: '00000000-0000-0000-0000-000000000001' },
+          body: { bookmarkId: '00000000-0000-4000-8000-000000000001' },
           user,
         })
         await handler?.(ctx, async () => {})
@@ -509,7 +522,7 @@ describe('Bookmarks CRUD Operations', () => {
       it('should return completed bookmark', async () => {
         const user = createTestUser()
         const bookmark = createTestBookmark(
-          '00000000-0000-0000-0000-000000000001',
+          '00000000-0000-4000-8000-000000000001',
           user.id,
           {
             processing_status: 'completed',
@@ -528,14 +541,14 @@ describe('Bookmarks CRUD Operations', () => {
 
         const ctx = createMockContext({
           method: 'GET',
-          params: { id: '00000000-0000-0000-0000-000000000001' },
+          params: { id: '00000000-0000-4000-8000-000000000001' },
           user,
         })
         await handler?.(ctx, async () => {})
 
         const response = (ctx as any)._jsonResponses[0]
         expect(response.data).toMatchObject({
-          id: '00000000-0000-0000-0000-000000000001',
+          id: '00000000-0000-4000-8000-000000000001',
           title: 'Test Article',
           processing_status: 'completed',
         })
@@ -544,7 +557,7 @@ describe('Bookmarks CRUD Operations', () => {
       it('should return pending bookmark', async () => {
         const user = createTestUser()
         const bookmark = createTestBookmark(
-          '00000000-0000-0000-0000-000000000001',
+          '00000000-0000-4000-8000-000000000001',
           user.id,
           {
             processing_status: 'pending',
@@ -563,7 +576,7 @@ describe('Bookmarks CRUD Operations', () => {
 
         const ctx = createMockContext({
           method: 'GET',
-          params: { id: '00000000-0000-0000-0000-000000000001' },
+          params: { id: '00000000-0000-4000-8000-000000000001' },
           user,
         })
         await handler?.(ctx, async () => {})
@@ -575,7 +588,7 @@ describe('Bookmarks CRUD Operations', () => {
       it('should return processing bookmark', async () => {
         const user = createTestUser()
         const bookmark = createTestBookmark(
-          '00000000-0000-0000-0000-000000000001',
+          '00000000-0000-4000-8000-000000000001',
           user.id,
           {
             processing_status: 'processing',
@@ -594,7 +607,7 @@ describe('Bookmarks CRUD Operations', () => {
 
         const ctx = createMockContext({
           method: 'GET',
-          params: { id: '00000000-0000-0000-0000-000000000001' },
+          params: { id: '00000000-0000-4000-8000-000000000001' },
           user,
         })
         await handler?.(ctx, async () => {})
@@ -606,7 +619,7 @@ describe('Bookmarks CRUD Operations', () => {
       it('should return failed bookmark', async () => {
         const user = createTestUser()
         const bookmark = createTestBookmark(
-          '00000000-0000-0000-0000-000000000001',
+          '00000000-0000-4000-8000-000000000001',
           user.id,
           {
             processing_status: 'failed',
@@ -625,7 +638,7 @@ describe('Bookmarks CRUD Operations', () => {
 
         const ctx = createMockContext({
           method: 'GET',
-          params: { id: '00000000-0000-0000-0000-000000000001' },
+          params: { id: '00000000-0000-4000-8000-000000000001' },
           user,
         })
         await handler?.(ctx, async () => {})
@@ -643,7 +656,7 @@ describe('Bookmarks CRUD Operations', () => {
         const user = createTestUser()
         const fiveMinutesAgo = new Date(Date.now() - 6 * 60 * 1000).toISOString()
         const bookmark = createTestBookmark(
-          '00000000-0000-0000-0000-000000000001',
+          '00000000-0000-4000-8000-000000000001',
           user.id,
           {
             processing_status: 'pending',
@@ -671,7 +684,7 @@ describe('Bookmarks CRUD Operations', () => {
 
         const ctx = createMockContext({
           method: 'GET',
-          params: { id: '00000000-0000-0000-0000-000000000001' },
+          params: { id: '00000000-0000-4000-8000-000000000001' },
           user,
         })
         await handler?.(ctx, async () => {})
@@ -688,7 +701,7 @@ describe('Bookmarks CRUD Operations', () => {
         const user = createTestUser()
         const fiveMinutesAgo = new Date(Date.now() - 7 * 60 * 1000).toISOString()
         const bookmark = createTestBookmark(
-          '00000000-0000-0000-0000-000000000001',
+          '00000000-0000-4000-8000-000000000001',
           user.id,
           {
             processing_status: 'processing',
@@ -715,7 +728,7 @@ describe('Bookmarks CRUD Operations', () => {
 
         const ctx = createMockContext({
           method: 'GET',
-          params: { id: '00000000-0000-0000-0000-000000000001' },
+          params: { id: '00000000-0000-4000-8000-000000000001' },
           user,
         })
         await handler?.(ctx, async () => {})
@@ -727,7 +740,7 @@ describe('Bookmarks CRUD Operations', () => {
         const user = createTestUser()
         const fourMinutesAgo = new Date(Date.now() - 4 * 60 * 1000).toISOString()
         const bookmark = createTestBookmark(
-          '00000000-0000-0000-0000-000000000001',
+          '00000000-0000-4000-8000-000000000001',
           user.id,
           {
             processing_status: 'pending',
@@ -746,7 +759,7 @@ describe('Bookmarks CRUD Operations', () => {
 
         const ctx = createMockContext({
           method: 'GET',
-          params: { id: '00000000-0000-0000-0000-000000000001' },
+          params: { id: '00000000-0000-4000-8000-000000000001' },
           user,
         })
         await handler?.(ctx, async () => {})
@@ -758,7 +771,7 @@ describe('Bookmarks CRUD Operations', () => {
         const user = createTestUser()
         const fiveMinutesAgo = new Date(Date.now() - 6 * 60 * 1000).toISOString()
         const bookmark = createTestBookmark(
-          '00000000-0000-0000-0000-000000000001',
+          '00000000-0000-4000-8000-000000000001',
           user.id,
           {
             processing_status: 'pending',
@@ -782,7 +795,7 @@ describe('Bookmarks CRUD Operations', () => {
 
         const ctx = createMockContext({
           method: 'GET',
-          params: { id: '00000000-0000-0000-0000-000000000001' },
+          params: { id: '00000000-0000-4000-8000-000000000001' },
           user,
         })
         await handler?.(ctx, async () => {})
@@ -823,7 +836,7 @@ describe('Bookmarks CRUD Operations', () => {
 
         const ctx = createMockContext({
           method: 'GET',
-          params: { id: '00000000-0000-0000-0000-000000000001' },
+          params: { id: '00000000-0000-4000-8000-000000000001' },
         })
         await handler?.(ctx, async () => {})
 
@@ -844,7 +857,7 @@ describe('Bookmarks CRUD Operations', () => {
 
         const ctx = createMockContext({
           method: 'GET',
-          params: { id: '00000000-0000-0000-0000-000000000001' },
+          params: { id: '00000000-0000-4000-8000-000000000001' },
         })
         await handler?.(ctx, async () => {})
 
@@ -869,7 +882,7 @@ describe('Bookmarks CRUD Operations', () => {
 
         const ctx = createMockContext({
           method: 'GET',
-          params: { id: '00000000-0000-0000-0000-000000000001' },
+          params: { id: '00000000-0000-4000-8000-000000000001' },
           user: userA,
         })
         await handler?.(ctx, async () => {})
