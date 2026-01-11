@@ -6,6 +6,25 @@
 
 import { vi, beforeAll, afterAll, afterEach } from 'vitest';
 
+// Mock environment config module FIRST to avoid validation errors
+vi.mock('../config/env', () => ({
+  env: {
+    PORT: 3000,
+    NODE_ENV: 'test' as const,
+    CORS_ORIGIN: 'http://localhost:3001',
+    SUPABASE_URL: 'https://test.supabase.co',
+    SUPABASE_SERVICE_ROLE_KEY: 'test-service-role-key',
+    SUPABASE_JWT_SECRET: 'test-jwt-secret',
+    REDIS_URL: 'redis://localhost:6379',
+    TELEGRAM_BOT_TOKEN: 'test-telegram-token',
+    TELEGRAM_WEBHOOK_SECRET: 'test-webhook-secret',
+    GOPHER_API_KEY: 'test-gopher-key',
+    GOOGLE_GENERATIVE_AI_API_KEY: 'test-google-ai-key',
+    PARALLEL_API_KEY: 'test-parallel-key',
+    APP_URL: 'https://test.example.com',
+  },
+}));
+
 // Mock Supabase client
 vi.mock('@supabase/supabase-js', () => ({
   createClient: vi.fn(() => ({
@@ -103,10 +122,12 @@ beforeAll(() => {
   vi.stubEnv('NODE_ENV', 'test');
   vi.stubEnv('SUPABASE_URL', 'https://test.supabase.co');
   vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test-service-role-key');
+  vi.stubEnv('SUPABASE_JWT_SECRET', 'test-jwt-secret');
   vi.stubEnv('TELEGRAM_BOT_TOKEN', 'test-telegram-token');
   vi.stubEnv('TELEGRAM_WEBHOOK_SECRET', 'test-webhook-secret');
   vi.stubEnv('GOPHER_API_KEY', 'test-gopher-key');
   vi.stubEnv('GOOGLE_GENERATIVE_AI_API_KEY', 'test-google-ai-key');
+  vi.stubEnv('PARALLEL_API_KEY', 'test-parallel-key');
   vi.stubEnv('REDIS_URL', 'redis://localhost:6379');
 });
 
