@@ -16,7 +16,7 @@ export default function AdminErrorsPage() {
   const { data, isLoading, error, refetch, isFetching } = useAdminErrors({
     page,
     limit: PAGE_LIMIT,
-    sortBy: 'updated_at',
+    sortBy: 'failed_at',
     sortOrder: 'desc',
   })
 
