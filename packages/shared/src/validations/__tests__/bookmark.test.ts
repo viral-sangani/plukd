@@ -682,7 +682,7 @@ describe('Bookmark Validation Schemas', () => {
   describe('bookmarkListParamsSchema', () => {
     describe('valid params', () => {
       it('should accept valid pagination params', () => {
-        const params: BookmarkListParams = {
+        const params = {
           page: 1,
           limit: 20,
         }
@@ -707,7 +707,7 @@ describe('Bookmark Validation Schemas', () => {
       })
 
       it('should accept valid filter params', () => {
-        const params: BookmarkListParams = {
+        const params = {
           page: 2,
           limit: 50,
           category: 'programming',

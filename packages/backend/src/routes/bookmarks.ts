@@ -622,6 +622,81 @@ bookmarksRoutes.post('/process', async (c) => {
   }
 })
 
+// POST /:id/regenerate - Regenerate AI summary for a bookmark with minimal content
+// This is specifically designed for bookmarks that have insufficient content placeholder
+bookmarksRoutes.post('/:id/regenerate', async (c) => {
+  try {
+    const user = c.get('user')
+    const bookmarkId = c.req.param('id')
+
+    // Validate UUID format
+    if (!z.string().uuid().safeParse(bookmarkId).success) {
+      return c.json({ error: 'Invalid bookmark ID' }, 400)
+    }
+
+    // Verify the bookmark exists and belongs to the user
+    const { data: bookmark, error: fetchError } = await supabaseAdmin
+      .from('bookmarks')
+      .select('id, url, title, blurb, extraction_error')
+      .eq('id', bookmarkId)
+      .eq('user_id', user.id)
+      .single<{ id: string; url: string; title: string | null; blurb: string | null; extraction_error: string | null }>()
+
+    if (fetchError) {
+      if (fetchError.code === 'PGRST116') {
+        return c.json({ error: 'Bookmark not found' }, 404)
+      }
+      console.error('[bookmarks] Error fetching bookmark for regeneration:', fetchError)
+      return c.json({ error: 'Failed to fetch bookmark' }, 500)
+    }
+
+    // Build update data - reset processing status and clear errors
+    const updateData: BookmarkUpdate = {
+      processing_status: 'pending',
+      processing_error: null,
+    }
+
+    // Clear extraction_error to allow fresh attempt
+    // Using as never because extraction_error is not in the standard update schema
+    const fullUpdateData = {
+      ...updateData,
+      extraction_error: null,
+    }
+
+    // If the current title is bad (Untitled, matches URL, etc.), clear it
+    if (isTitleBad(bookmark.title, bookmark.url)) {
+      console.log(
+        `[bookmarks] Clearing bad title "${bookmark.title}" for regeneration of bookmark ${bookmarkId}`
+      )
+      fullUpdateData.title = bookmark.url
+    }
+
+    const { error: updateError } = await supabaseAdmin
+      .from('bookmarks')
+      .update(fullUpdateData as never)
+      .eq('id', bookmarkId)
+
+    if (updateError) {
+      console.error('[bookmarks] Error resetting bookmark for regeneration:', updateError)
+      return c.json({ error: 'Failed to reset bookmark for regeneration' }, 500)
+    }
+
+    // Enqueue for background processing
+    await enqueueBookmarkProcessing(bookmark.id, bookmark.url, user.id)
+
+    console.log(`[bookmarks] Regeneration triggered for bookmark ${bookmarkId}`)
+
+    return c.json({
+      success: true,
+      message: 'Regeneration triggered. The bookmark will be reprocessed shortly.',
+      bookmarkId: bookmark.id,
+    })
+  } catch (error) {
+    console.error('[bookmarks] Error in regenerate:', error)
+    return c.json({ error: 'Internal server error' }, 500)
+  }
+})
+
 // Processing timeout in milliseconds (5 minutes)
 const PROCESSING_TIMEOUT_MS = 5 * 60 * 1000
 

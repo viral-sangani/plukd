@@ -90,6 +90,8 @@ vi.mock('../lib/extractors', () => ({
 
 vi.mock('../lib/ai/process', () => ({
   processContentWithRetry: vi.fn(),
+  INSUFFICIENT_CONTENT_MARKER: '__INSUFFICIENT_CONTENT__',
+  INSUFFICIENT_CONTENT_BLURB: 'Content extraction in progress. Please check back later or visit the URL directly.',
 }))
 
 vi.mock('../jobs/queue', () => ({

@@ -1431,6 +1431,219 @@ describe('Bookmarks Routes', () => {
     })
   })
 
-  // Due to length constraints, I'll continue with the remaining endpoints in the next part
-  // The test file will be split into multiple sections for clarity
+  // ============================================================
+  // POST /:id/regenerate - Regenerate Bookmark Summary
+  // ============================================================
+  describe('POST /:id/regenerate - Regenerate Bookmark Summary', () => {
+    const validBookmarkId = '00000000-0000-4000-8000-000000000001'
+
+    describe('Happy Path', () => {
+      it('should trigger regeneration for valid bookmark', async () => {
+        const { enqueueBookmarkProcessing } = await import('../../jobs/queue')
+        const user = createTestUser()
+
+        mockSupabase.single.mockResolvedValueOnce({
+          data: {
+            id: validBookmarkId,
+            url: 'https://example.com/article',
+            title: 'Test Article',
+            blurb: 'Content extraction in progress. Please check back later or visit the URL directly.',
+            extraction_error: 'Content insufficient for AI processing',
+          },
+          error: null,
+        })
+
+        mockSupabase.update.mockReturnValue({
+          eq: vi.fn().mockResolvedValue({ error: null }),
+        })
+
+        const handler = bookmarksRoutes.routes.find(
+          (r) => r.method === 'POST' && r.path === '/:id/regenerate'
+        )?.handler
+
+        const ctx = createMockContext({
+          method: 'POST',
+          path: `/${validBookmarkId}/regenerate`,
+          params: { id: validBookmarkId },
+          user,
+        })
+        await handler?.(ctx, async () => {})
+
+        const response = (ctx as any)._jsonResponses[0]
+        expect(response.data).toMatchObject({
+          success: true,
+          message: 'Regeneration triggered. The bookmark will be reprocessed shortly.',
+          bookmarkId: validBookmarkId,
+        })
+
+        expect(enqueueBookmarkProcessing).toHaveBeenCalledWith(
+          validBookmarkId,
+          'https://example.com/article',
+          user.id
+        )
+      })
+
+      it('should reset processing status to pending', async () => {
+        const user = createTestUser()
+
+        mockSupabase.single.mockResolvedValueOnce({
+          data: {
+            id: validBookmarkId,
+            url: 'https://example.com/article',
+            title: 'Test Article',
+            blurb: null,
+            extraction_error: null,
+          },
+          error: null,
+        })
+
+        const updateMock = vi.fn().mockReturnValue({
+          eq: vi.fn().mockResolvedValue({ error: null }),
+        })
+        mockSupabase.update = updateMock
+
+        const handler = bookmarksRoutes.routes.find(
+          (r) => r.method === 'POST' && r.path === '/:id/regenerate'
+        )?.handler
+
+        const ctx = createMockContext({
+          method: 'POST',
+          path: `/${validBookmarkId}/regenerate`,
+          params: { id: validBookmarkId },
+          user,
+        })
+        await handler?.(ctx, async () => {})
+
+        expect(updateMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            processing_status: 'pending',
+            processing_error: null,
+            extraction_error: null,
+          })
+        )
+      })
+    })
+
+    describe('Validation', () => {
+      it('should return 400 for invalid UUID', async () => {
+        const handler = bookmarksRoutes.routes.find(
+          (r) => r.method === 'POST' && r.path === '/:id/regenerate'
+        )?.handler
+
+        const ctx = createMockContext({
+          method: 'POST',
+          path: '/invalid-uuid/regenerate',
+          params: { id: 'invalid-uuid' },
+        })
+        await handler?.(ctx, async () => {})
+
+        const response = (ctx as any)._jsonResponses[0]
+        expect(response.status).toBe(400)
+        expect(response.data.error).toBe('Invalid bookmark ID')
+      })
+
+      it('should return 404 for non-existent bookmark', async () => {
+        mockSupabase.single.mockResolvedValue({
+          data: null,
+          error: { code: 'PGRST116', message: 'Not found' },
+        })
+
+        const handler = bookmarksRoutes.routes.find(
+          (r) => r.method === 'POST' && r.path === '/:id/regenerate'
+        )?.handler
+
+        const ctx = createMockContext({
+          method: 'POST',
+          path: `/${validBookmarkId}/regenerate`,
+          params: { id: validBookmarkId },
+        })
+        await handler?.(ctx, async () => {})
+
+        const response = (ctx as any)._jsonResponses[0]
+        expect(response.status).toBe(404)
+        expect(response.data.error).toBe('Bookmark not found')
+      })
+
+      it('should only regenerate bookmarks belonging to the user', async () => {
+        const userA = createTestUser('user-a')
+
+        // Return null when trying to fetch other user's bookmark
+        mockSupabase.single.mockResolvedValue({
+          data: null,
+          error: { code: 'PGRST116', message: 'Not found' },
+        })
+
+        const handler = bookmarksRoutes.routes.find(
+          (r) => r.method === 'POST' && r.path === '/:id/regenerate'
+        )?.handler
+
+        const ctx = createMockContext({
+          method: 'POST',
+          path: `/${validBookmarkId}/regenerate`,
+          params: { id: validBookmarkId },
+          user: userA,
+        })
+        await handler?.(ctx, async () => {})
+
+        const response = (ctx as any)._jsonResponses[0]
+        expect(response.status).toBe(404)
+      })
+    })
+
+    describe('Error Handling', () => {
+      it('should handle database fetch error', async () => {
+        mockSupabase.single.mockResolvedValue({
+          data: null,
+          error: { message: 'Database error' },
+        })
+
+        const handler = bookmarksRoutes.routes.find(
+          (r) => r.method === 'POST' && r.path === '/:id/regenerate'
+        )?.handler
+
+        const ctx = createMockContext({
+          method: 'POST',
+          path: `/${validBookmarkId}/regenerate`,
+          params: { id: validBookmarkId },
+        })
+        await handler?.(ctx, async () => {})
+
+        const response = (ctx as any)._jsonResponses[0]
+        expect(response.status).toBe(500)
+        expect(response.data.error).toBe('Failed to fetch bookmark')
+      })
+
+      it('should handle database update error', async () => {
+        mockSupabase.single.mockResolvedValueOnce({
+          data: {
+            id: validBookmarkId,
+            url: 'https://example.com/article',
+            title: 'Test Article',
+            blurb: null,
+            extraction_error: null,
+          },
+          error: null,
+        })
+
+        mockSupabase.update.mockReturnValue({
+          eq: vi.fn().mockResolvedValue({ error: { message: 'Update failed' } }),
+        })
+
+        const handler = bookmarksRoutes.routes.find(
+          (r) => r.method === 'POST' && r.path === '/:id/regenerate'
+        )?.handler
+
+        const ctx = createMockContext({
+          method: 'POST',
+          path: `/${validBookmarkId}/regenerate`,
+          params: { id: validBookmarkId },
+        })
+        await handler?.(ctx, async () => {})
+
+        const response = (ctx as any)._jsonResponses[0]
+        expect(response.status).toBe(500)
+        expect(response.data.error).toBe('Failed to reset bookmark for regeneration')
+      })
+    })
+  })
 })

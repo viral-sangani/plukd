@@ -40,6 +40,7 @@ const TRUSTED_IMAGE_DOMAINS = [
   'cdninstagram.com',
   'scontent.cdninstagram.com',
   'scontent-',
+  'fbcdn.net', // Instagram CDN (instagram.*.fbcdn.net, scontent.*.fbcdn.net)
   'i.ytimg.com',
   'img.youtube.com',
   'media.licdn.com',
@@ -51,6 +52,13 @@ const TRUSTED_IMAGE_DOMAINS = [
  * Limits token usage and processing time.
  */
 const MAX_IMAGES = 4
+
+/**
+ * Maximum number of images for carousel content.
+ * Instagram carousels can have up to 10 slides, so we increase the limit
+ * to capture more content (e.g., "Top 31 AI Tools" posts).
+ */
+export const MAX_CAROUSEL_IMAGES = 10
 
 /**
  * Content truncation limits for classification
@@ -149,25 +157,49 @@ export function detectListIndicators(content: string): ListIndicators {
 function isTrustedImageUrl(url: string): boolean {
   try {
     const parsed = new URL(url)
-    return TRUSTED_IMAGE_DOMAINS.some(
+    const hostname = parsed.hostname
+    const isTrusted = TRUSTED_IMAGE_DOMAINS.some(
       (domain) =>
-        parsed.hostname === domain || parsed.hostname.includes(domain)
+        hostname === domain || hostname.includes(domain)
     )
-  } catch {
+    // TEMPORARY DEBUG: Log hostname check
+    console.log(`[DEBUG:IMAGE-TRUST] hostname: "${hostname}" -> trusted: ${isTrusted}`)
+    return isTrusted
+  } catch (error) {
+    console.log(`[DEBUG:IMAGE-TRUST] URL parse error for: "${url.slice(0, 50)}..." -> ${error}`)
     return false
   }
 }
 
 /**
  * Filter and limit image URLs to trusted domains.
- * Returns up to MAX_IMAGES URLs from trusted sources.
+ * Returns up to the specified limit (default MAX_IMAGES) URLs from trusted sources.
+ *
+ * @param mediaUrls - Array of media URLs to filter
+ * @param limit - Maximum number of images to return (default: MAX_IMAGES)
+ * @returns Filtered array of trusted image URLs
  */
-export function getValidImageUrls(mediaUrls?: string[]): string[] {
+export function getValidImageUrls(mediaUrls?: string[], limit: number = MAX_IMAGES): string[] {
   if (!mediaUrls || mediaUrls.length === 0) {
     return []
   }
 
-  return mediaUrls.filter(isTrustedImageUrl).slice(0, MAX_IMAGES)
+  // TEMPORARY DEBUG: Log image URL filtering
+  console.log(`[DEBUG:IMAGE-FILTER] Input URLs count: ${mediaUrls.length}`)
+  console.log(`[DEBUG:IMAGE-FILTER] Limit: ${limit}`)
+
+  const filteredUrls: string[] = []
+  for (const url of mediaUrls) {
+    const trusted = isTrustedImageUrl(url)
+    console.log(`[DEBUG:IMAGE-FILTER] URL: "${url.slice(0, 80)}..." -> trusted: ${trusted}`)
+    if (trusted) {
+      filteredUrls.push(url)
+    }
+  }
+
+  console.log(`[DEBUG:IMAGE-FILTER] Filtered URLs count: ${filteredUrls.length}`)
+
+  return filteredUrls.slice(0, limit)
 }
 
 /**
@@ -193,17 +225,42 @@ function getSourceHints(source: ContentSource): string {
 }
 
 /**
- * Get image analysis instructions for classification
+ * Carousel information for prompts
  */
-function getImageAnalysisHints(): string {
-  return `
-IMAGE ANALYSIS:
-- This content includes images. Analyze them for:
-  - Text content (screenshots, infographics, guides)
-  - Code snippets or technical diagrams
-  - Data visualizations or charts
-- Consider image content when determining category and tags
-- If image contains a list/guide, consider "list" content type`
+export interface CarouselInfo {
+  isCarousel: boolean
+  totalImages: number
+  visibleImages: number
+}
+
+/**
+ * Get image analysis instructions for classification with explicit OCR requirements
+ */
+function getImageAnalysisHints(carouselInfo?: CarouselInfo): string {
+  const baseHints = `
+IMAGE CONTENT ANALYSIS (OCR REQUIRED):
+- CRITICAL: READ ALL TEXT visible in every image using OCR
+- Extract text from:
+  * Titles, headings, and subheadings
+  * Numbered or bulleted lists
+  * Tool/app/book/movie names and their descriptions
+  * Any visible text overlays or captions
+  * URLs or website names shown in images
+- If text is blurry or unclear, note what you can read
+- Use extracted image text to determine category, tags, and content type
+- If images contain a list/guide/recommendations, use "list" content type`
+
+  if (carouselInfo?.isCarousel) {
+    return baseHints + `
+- CAROUSEL POST: This is a carousel with ${carouselInfo.totalImages} total images, ${carouselInfo.visibleImages} are visible for analysis.
+- For carousel posts: Analyze EACH image separately - do NOT skip any slides
+- Each carousel slide may contain one or more list items (e.g., "1/ Mixo.io - Launch websites in seconds")
+- Extract and READ all text from EVERY visible carousel image
+- If slides show different tools/resources/items, classify as "list" content type
+- Common format: Each slide = 1 item with name + description (e.g., "Top 10 AI Tools" posts)`
+  }
+
+  return baseHints
 }
 
 /**
@@ -214,12 +271,14 @@ IMAGE ANALYSIS:
  * @param content - Extracted content
  * @param hasImages - Whether the content includes images for multimodal analysis
  * @param listIndicators - Optional pre-computed list indicators for adaptive truncation
+ * @param carouselInfo - Optional carousel information for better image analysis
  * @returns Prompt string for classification
  */
 export function buildClassificationPrompt(
   content: ExtractedContent,
   hasImages?: boolean,
-  listIndicators?: ListIndicators
+  listIndicators?: ListIndicators,
+  carouselInfo?: CarouselInfo
 ): string {
   const categoryList = CATEGORIES.join(', ')
   const tagList = TAGS.join(', ')
@@ -247,7 +306,7 @@ export function buildClassificationPrompt(
     content: truncatedContent,
   }
 
-  const imageHints = hasImages ? getImageAnalysisHints() : ''
+  const imageHints = hasImages ? getImageAnalysisHints(carouselInfo) : ''
 
   return `Classify this ${input.source} content for a bookmarking app.
 

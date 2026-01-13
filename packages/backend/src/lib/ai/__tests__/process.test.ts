@@ -36,15 +36,19 @@ import {
   extractListItems,
   processContent,
   processContentWithRetry,
+  isContentSufficient,
+  INSUFFICIENT_CONTENT_MARKER,
+  INSUFFICIENT_CONTENT_BLURB,
 } from '../process'
 
 // Helper to create mock extracted content
+// Content must be at least 100 characters to pass the sufficiency check
 function createMockContent(overrides: Partial<ExtractedContent> = {}): ExtractedContent {
   return {
     url: 'https://example.com/article',
     source: 'web',
     title: 'Example Article',
-    content: 'This is example content for testing AI processing.',
+    content: 'This is example content for testing AI processing. It includes multiple sentences with enough detail to pass the minimum content length requirement of 100 characters for AI analysis.',
     author: 'Test Author',
     authorUrl: 'https://example.com/author',
     mediaUrls: [],
@@ -895,6 +899,309 @@ describe('AI Processing Pipeline', () => {
       const content = createMockContent()
 
       await expect(processContentWithRetry(content, 3)).rejects.toThrow('AI processing failed after 3 attempts')
+    })
+  })
+
+  describe('Content Sufficiency Detection', () => {
+
+    it('should mark empty content as insufficient', () => {
+      const content = createMockContent({ content: '' })
+      const result = isContentSufficient(content)
+
+      expect(result.isSufficient).toBe(false)
+      expect(result.reason).toBe('Content is empty')
+    })
+
+    it('should mark whitespace-only content as insufficient', () => {
+      const content = createMockContent({ content: '   \n\n\t  ' })
+      const result = isContentSufficient(content)
+
+      expect(result.isSufficient).toBe(false)
+      expect(result.reason).toBe('Content is empty')
+    })
+
+    it('should mark content matching URL as insufficient', () => {
+      const url = 'https://example.com/article'
+      const content = createMockContent({ url, content: url })
+      const result = isContentSufficient(content)
+
+      expect(result.isSufficient).toBe(false)
+      expect(result.reason).toBe('Content is just the URL')
+    })
+
+    it('should mark fallback placeholder pattern as insufficient', () => {
+      const content = createMockContent({ content: 'Content from https://example.com/article' })
+      const result = isContentSufficient(content)
+
+      expect(result.isSufficient).toBe(false)
+      expect(result.reason).toBe('Content is a fallback placeholder')
+    })
+
+    it('should mark short content (< 100 chars) as insufficient', () => {
+      const content = createMockContent({ content: 'This is a very short content.' })
+      const result = isContentSufficient(content)
+
+      expect(result.isSufficient).toBe(false)
+      expect(result.reason).toContain('Content too short')
+      expect(result.reason).toContain('minimum 100')
+    })
+
+    it('should mark content at exactly 99 chars as insufficient', () => {
+      const content = createMockContent({ content: 'a'.repeat(99) })
+      const result = isContentSufficient(content)
+
+      expect(result.isSufficient).toBe(false)
+      expect(result.reason).toContain('Content too short')
+    })
+
+    it('should mark content at exactly 100 chars as sufficient', () => {
+      const content = createMockContent({ content: 'a'.repeat(100) })
+      const result = isContentSufficient(content)
+
+      expect(result.isSufficient).toBe(true)
+      expect(result.reason).toBeUndefined()
+    })
+
+    it('should mark long content as sufficient', () => {
+      const content = createMockContent({ content: 'This is a sufficiently long content that should pass the minimum length check and be considered valid for AI processing.' })
+      const result = isContentSufficient(content)
+
+      expect(result.isSufficient).toBe(true)
+      expect(result.reason).toBeUndefined()
+    })
+
+    it('should trim content before checking length', () => {
+      // 100 chars of content with surrounding whitespace
+      const content = createMockContent({ content: '   ' + 'a'.repeat(100) + '   ' })
+      const result = isContentSufficient(content)
+
+      expect(result.isSufficient).toBe(true)
+    })
+
+    it('should have correct INSUFFICIENT_CONTENT_BLURB message', () => {
+      expect(INSUFFICIENT_CONTENT_BLURB).toBe(
+        'Content extraction in progress. Please check back later or visit the URL directly.'
+      )
+    })
+
+    it('should have correct INSUFFICIENT_CONTENT_MARKER', () => {
+      expect(INSUFFICIENT_CONTENT_MARKER).toBe('__INSUFFICIENT_CONTENT__')
+    })
+  })
+
+  describe('processContent with insufficient content', () => {
+    it('should return insufficient content result for empty content', async () => {
+      const content = createMockContent({ content: '' })
+      const result = await processContent(content)
+
+      expect(result.summary).toBe('__INSUFFICIENT_CONTENT__')
+      expect(result.blurb).toBe('Content extraction in progress. Please check back later or visit the URL directly.')
+      expect(result.category).toBeNull()
+      expect(result.tags).toEqual([])
+      expect(result.contentType).toBe('other')
+
+      // AI should not be called
+      expect(mockGenerateObject).not.toHaveBeenCalled()
+    })
+
+    it('should return insufficient content result for fallback placeholder', async () => {
+      const content = createMockContent({
+        content: 'Content from https://example.com/some-url',
+      })
+      const result = await processContent(content)
+
+      expect(result.summary).toBe('__INSUFFICIENT_CONTENT__')
+      expect(result.blurb).toBe('Content extraction in progress. Please check back later or visit the URL directly.')
+
+      // AI should not be called
+      expect(mockGenerateObject).not.toHaveBeenCalled()
+    })
+
+    it('should return insufficient content result for short content', async () => {
+      const content = createMockContent({ content: 'Short content only.' })
+      const result = await processContent(content)
+
+      expect(result.summary).toBe('__INSUFFICIENT_CONTENT__')
+
+      // AI should not be called
+      expect(mockGenerateObject).not.toHaveBeenCalled()
+    })
+
+    it('should process normal content and call AI', async () => {
+      const mockClassification = createMockClassification()
+      const mockSummarization = createMockSummarization()
+
+      mockGenerateObject
+        .mockResolvedValueOnce({
+          object: mockClassification,
+          usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
+        })
+        .mockResolvedValueOnce({
+          object: mockSummarization,
+          usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
+        })
+
+      const content = createMockContent({
+        content: 'This is a sufficiently long content that should pass the minimum length check and trigger the AI processing pipeline for classification and summarization.',
+      })
+      const result = await processContent(content)
+
+      expect(result.summary).not.toBe('__INSUFFICIENT_CONTENT__')
+      expect(result.category).toBe(mockClassification.category)
+      expect(mockGenerateObject).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  describe('Instagram Carousel Content Sufficiency', () => {
+    describe('carousel with images and minimal caption', () => {
+      it('should accept carousel with 2+ images and 20-char caption', () => {
+        const content = createMockContent({
+          source: 'instagram',
+          content: 'Save these later ok!', // 20 characters
+          mediaUrls: ['https://instagram.com/img1.jpg', 'https://instagram.com/img2.jpg'],
+          rawMetadata: {
+            instagram: {
+              isCarousel: true,
+              carouselItems: [
+                { isVideo: false, url: 'https://instagram.com/img1.jpg' },
+                { isVideo: false, url: 'https://instagram.com/img2.jpg' },
+              ],
+            },
+            carouselInfo: {
+              isCarousel: true,
+              itemCount: 2,
+              hasVideos: false,
+            },
+          },
+        })
+
+        const result = isContentSufficient(content)
+
+        // Carousel posts with 2+ images get relaxed content requirements (20 chars minimum)
+        // This allows carousel posts with short captions like "Save these!" to be processed
+        expect(result.isSufficient).toBe(true)
+        expect(result.isCarouselRelaxed).toBe(true)
+      })
+
+      it('should accept carousel with 10 images and 50-char caption', () => {
+        const content = createMockContent({
+          source: 'instagram',
+          content: 'Check out these amazing AI tools I found recently!', // 50 characters
+          mediaUrls: Array.from({ length: 10 }, (_, i) => `https://instagram.com/img${i}.jpg`),
+          rawMetadata: {
+            instagram: {
+              isCarousel: true,
+              carouselItems: Array.from({ length: 10 }, (_, i) => ({
+                isVideo: false,
+                url: `https://instagram.com/img${i}.jpg`,
+              })),
+            },
+            carouselInfo: {
+              isCarousel: true,
+              itemCount: 10,
+              hasVideos: false,
+            },
+          },
+        })
+
+        const result = isContentSufficient(content)
+
+        // Carousel posts with 2+ images get relaxed content requirements (20 chars minimum)
+        // 50 chars is above the carousel minimum, so should pass with carousel relaxation
+        expect(result.isSufficient).toBe(true)
+        expect(result.isCarouselRelaxed).toBe(true)
+      })
+
+      it('should reject carousel with 2+ images and 15-char caption', () => {
+        const content = createMockContent({
+          source: 'instagram',
+          content: 'Save these now', // 14 characters
+          mediaUrls: ['https://instagram.com/img1.jpg', 'https://instagram.com/img2.jpg'],
+          rawMetadata: {
+            instagram: {
+              isCarousel: true,
+              carouselItems: [
+                { isVideo: false, url: 'https://instagram.com/img1.jpg' },
+                { isVideo: false, url: 'https://instagram.com/img2.jpg' },
+              ],
+            },
+            carouselInfo: {
+              isCarousel: true,
+              itemCount: 2,
+              hasVideos: false,
+            },
+          },
+        })
+
+        const result = isContentSufficient(content)
+
+        expect(result.isSufficient).toBe(false)
+        expect(result.reason).toContain('Content too short')
+      })
+    })
+
+    describe('single-image posts maintain existing requirements', () => {
+      it('should require 100-char caption for single-image posts', () => {
+        const content = createMockContent({
+          source: 'instagram',
+          content: 'This is a single image post with a longer caption', // 50 characters
+          mediaUrls: ['https://instagram.com/img.jpg'],
+          rawMetadata: {
+            instagram: {
+              isCarousel: false,
+            },
+          },
+        })
+
+        const result = isContentSufficient(content)
+
+        expect(result.isSufficient).toBe(false)
+        expect(result.reason).toContain('Content too short')
+        expect(result.reason).toContain('minimum 100')
+      })
+
+      it('should accept single-image posts with 100+ char caption', () => {
+        const content = createMockContent({
+          source: 'instagram',
+          content: 'This is a sufficiently long caption for a single image post that contains at least 100 characters of text to ensure it has enough content for AI processing and analysis.',
+          mediaUrls: ['https://instagram.com/img.jpg'],
+          rawMetadata: {
+            instagram: {
+              isCarousel: false,
+            },
+          },
+        })
+
+        const result = isContentSufficient(content)
+
+        expect(result.isSufficient).toBe(true)
+        expect(result.reason).toBeUndefined()
+      })
+    })
+
+    describe('non-carousel content behavior unchanged', () => {
+      it('should maintain existing behavior for non-Instagram content', () => {
+        const content = createMockContent({
+          source: 'web',
+          content: 'This is a short web article', // 28 characters
+        })
+
+        const result = isContentSufficient(content)
+
+        expect(result.isSufficient).toBe(false)
+        expect(result.reason).toContain('Content too short')
+      })
+
+      it('should maintain existing behavior for Twitter threads', () => {
+        const content = createMockContent({
+          source: 'twitter',
+          content: 'This is a sufficiently long Twitter thread with multiple tweets that contain enough content for analysis.',
+        })
+
+        const result = isContentSufficient(content)
+
+        expect(result.isSufficient).toBe(true)
+      })
     })
   })
 })

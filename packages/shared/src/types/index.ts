@@ -201,12 +201,23 @@ export interface LinkedInMetadata {
   impressions?: number
 }
 
+// Carousel item for Instagram posts with multiple images/videos
+export interface InstagramCarouselItem {
+  isVideo: boolean
+  url: string
+  thumbnailUrl?: string
+}
+
 export interface InstagramMetadata {
   likes?: number
   comments?: number
   shares?: number
   postType?: 'post' | 'reel' | 'story'
   caption?: string
+  hashtags?: string[]
+  mentions?: string[]
+  isCarousel?: boolean
+  carouselItems?: InstagramCarouselItem[]
 }
 
 export interface WebMetadata {

@@ -306,6 +306,20 @@ export function isTitleBad(title: string | null | undefined, url: string): boole
     return true
   }
 
+  // Check for standalone Instagram content type titles (without author info)
+  // These are generic fallback titles that should be regenerated
+  const standaloneInstagramTitles = [
+    'instagram reel',
+    'instagram post',
+    'instagram story',
+    'instagram content',
+    'instagram video',
+    'instagram photo',
+  ]
+  if (standaloneInstagramTitles.includes(lowerTrimmed)) {
+    return true
+  }
+
   // Check for Instagram-specific generic patterns
   // Only mark as bad if the title is JUST platform boilerplate without actual content
   const instagramGenericPatterns = [

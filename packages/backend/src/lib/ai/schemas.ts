@@ -127,6 +127,18 @@ export const listExtractionSchema = z.object({
 export type ListExtractionResult = z.infer<typeof listExtractionSchema>
 
 /**
+ * Schema for batch extraction (additional carousel images).
+ * Used when carousel has more than MAX_CAROUSEL_IMAGES slides.
+ */
+export const batchExtractionSchema = z.object({
+  extractedResources: z
+    .array(extractedResourceSchema)
+    .describe('Resources extracted from this batch of carousel images'),
+})
+
+export type BatchExtractionResult = z.infer<typeof batchExtractionSchema>
+
+/**
  * Combined result from all passes.
  * This is the final output of the multi-pass AI processing pipeline.
  */

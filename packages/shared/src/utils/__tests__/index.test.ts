@@ -832,6 +832,45 @@ describe('Utility Functions', () => {
       })
     })
 
+    describe('Standalone Instagram content type titles', () => {
+      it('should return true for "Instagram Reel" (exact match)', () => {
+        expect(isTitleBad('Instagram Reel', 'https://instagram.com/reel/abc')).toBe(true)
+      })
+
+      it('should return true for "Instagram Post" (exact match)', () => {
+        expect(isTitleBad('Instagram Post', 'https://instagram.com/p/abc')).toBe(true)
+      })
+
+      it('should return true for "Instagram Story" (exact match)', () => {
+        expect(isTitleBad('Instagram Story', 'https://instagram.com/stories/user/123')).toBe(true)
+      })
+
+      it('should return true for "Instagram Content" (exact match)', () => {
+        expect(isTitleBad('Instagram Content', 'https://instagram.com/user')).toBe(true)
+      })
+
+      it('should return true for "Instagram Video" (exact match)', () => {
+        expect(isTitleBad('Instagram Video', 'https://instagram.com/p/abc')).toBe(true)
+      })
+
+      it('should return true for "Instagram Photo" (exact match)', () => {
+        expect(isTitleBad('Instagram Photo', 'https://instagram.com/p/abc')).toBe(true)
+      })
+
+      it('should be case insensitive for standalone titles', () => {
+        expect(isTitleBad('instagram reel', 'https://instagram.com/reel/abc')).toBe(true)
+        expect(isTitleBad('INSTAGRAM POST', 'https://instagram.com/p/abc')).toBe(true)
+        expect(isTitleBad('Instagram STORY', 'https://instagram.com/stories/user/123')).toBe(true)
+      })
+
+      it('should return false when title has additional content', () => {
+        // These are considered good because they contain more than just the generic title
+        expect(isTitleBad('Instagram Reel: Cooking Tips', 'https://instagram.com/reel/abc')).toBe(false)
+        expect(isTitleBad('My Instagram Post', 'https://instagram.com/p/abc')).toBe(false)
+        expect(isTitleBad('Great Instagram Story About Travel', 'https://instagram.com/stories/user/123')).toBe(false)
+      })
+    })
+
     describe('Instagram-specific bad patterns', () => {
       it('should return true for titles ending with "Follow on Instagram"', () => {
         expect(isTitleBad('Check this out Follow on Instagram', 'https://instagram.com/p/abc')).toBe(true)

@@ -50,6 +50,8 @@ vi.mock('../../../lib/extractors/og-metadata', () => ({
 // Mock AI processing
 vi.mock('../../../lib/ai/process', () => ({
   processContentWithRetry: vi.fn(),
+  INSUFFICIENT_CONTENT_MARKER: '__INSUFFICIENT_CONTENT__',
+  INSUFFICIENT_CONTENT_BLURB: 'Content extraction in progress. Please check back later or visit the URL directly.',
 }))
 
 // Mock embeddings
@@ -1065,6 +1067,246 @@ describe('Bookmark Processing Pipeline', () => {
       await processBookmarkJob(mockJob)
 
       expect(vi.mocked(processContentWithRetry)).toHaveBeenCalled()
+    })
+  })
+
+  // ==========================================================================
+  // 8. INSUFFICIENT CONTENT HANDLING TESTS
+  // ==========================================================================
+
+  describe('Insufficient Content Handling', () => {
+    it('should save with placeholder when AI returns insufficient content marker', async () => {
+      vi.mocked(extractContent).mockResolvedValue(createMockExtractedContent())
+      vi.mocked(processContentWithRetry).mockResolvedValue({
+        category: null as unknown as ProcessingResult['category'],
+        tags: [],
+        blurb: 'Content extraction in progress. Please check back later or visit the URL directly.',
+        summary: '__INSUFFICIENT_CONTENT__',
+        contentType: 'other',
+      })
+
+      await processBookmarkJob(mockJob)
+
+      // Should complete successfully
+      expect(mockJob.updateProgress).toHaveBeenCalledWith(100)
+      expect(supabaseAdmin.from).toHaveBeenCalled()
+    })
+
+    it('should skip embedding generation for insufficient content', async () => {
+      vi.mocked(extractContent).mockResolvedValue(createMockExtractedContent())
+      vi.mocked(processContentWithRetry).mockResolvedValue({
+        category: null as unknown as ProcessingResult['category'],
+        tags: [],
+        blurb: 'Content extraction in progress. Please check back later or visit the URL directly.',
+        summary: '__INSUFFICIENT_CONTENT__',
+        contentType: 'other',
+      })
+
+      await processBookmarkJob(mockJob)
+
+      // Embedding should NOT be generated
+      expect(vi.mocked(generateBookmarkEmbedding)).not.toHaveBeenCalled()
+    })
+
+    it('should set status to completed even with insufficient content', async () => {
+      vi.mocked(extractContent).mockResolvedValue(createMockExtractedContent())
+      vi.mocked(processContentWithRetry).mockResolvedValue({
+        category: null as unknown as ProcessingResult['category'],
+        tags: [],
+        blurb: 'Content extraction in progress. Please check back later or visit the URL directly.',
+        summary: '__INSUFFICIENT_CONTENT__',
+        contentType: 'other',
+      })
+
+      await processBookmarkJob(mockJob)
+
+      // Should complete, not fail
+      expect(supabaseAdmin.from).toHaveBeenCalled()
+    })
+
+    it('should preserve extracted content even when AI content is insufficient', async () => {
+      const extractedContent = createMockExtractedContent({
+        title: 'Extracted Title',
+        author: 'Test Author',
+        mediaUrls: ['https://example.com/image.jpg'],
+      })
+      vi.mocked(extractContent).mockResolvedValue(extractedContent)
+      vi.mocked(processContentWithRetry).mockResolvedValue({
+        category: null as unknown as ProcessingResult['category'],
+        tags: [],
+        blurb: 'Content extraction in progress. Please check back later or visit the URL directly.',
+        summary: '__INSUFFICIENT_CONTENT__',
+        contentType: 'other',
+      })
+
+      await processBookmarkJob(mockJob)
+
+      // Database should be updated with extracted content
+      expect(supabaseAdmin.from).toHaveBeenCalled()
+    })
+
+    it('should handle fallback content that triggers insufficient content response', async () => {
+      // When extraction fails, fallback is created which AI detects as insufficient
+      vi.mocked(extractContent).mockResolvedValue(null)
+      vi.mocked(extractOGMetadata).mockResolvedValue(null)
+      vi.mocked(processContentWithRetry).mockResolvedValue({
+        category: null as unknown as ProcessingResult['category'],
+        tags: [],
+        blurb: 'Content extraction in progress. Please check back later or visit the URL directly.',
+        summary: '__INSUFFICIENT_CONTENT__',
+        contentType: 'other',
+      })
+
+      await processBookmarkJob(mockJob)
+
+      // Should complete successfully
+      expect(mockJob.updateProgress).toHaveBeenCalledWith(100)
+    })
+
+    it('should log debug message when content is insufficient and DEBUG=true', async () => {
+      const originalDebug = process.env.DEBUG
+      process.env.DEBUG = 'true'
+      const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+      vi.mocked(extractContent).mockResolvedValue(createMockExtractedContent())
+      vi.mocked(processContentWithRetry).mockResolvedValue({
+        category: null as unknown as ProcessingResult['category'],
+        tags: [],
+        blurb: 'Content extraction in progress. Please check back later or visit the URL directly.',
+        summary: '__INSUFFICIENT_CONTENT__',
+        contentType: 'other',
+      })
+
+      await processBookmarkJob(mockJob)
+
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Content insufficient for AI processing')
+      )
+
+      consoleLogSpy.mockRestore()
+      process.env.DEBUG = originalDebug
+    })
+  })
+
+  // ==========================================================================
+  // 9. EXTRACTION ERROR TRACKING TESTS
+  // ==========================================================================
+
+  describe('Extraction Error Tracking', () => {
+    it('should set extraction_error when primary extraction throws', async () => {
+      vi.mocked(extractContent).mockRejectedValue(new Error('Gopher API unavailable'))
+      vi.mocked(extractOGMetadata).mockResolvedValue(null)
+
+      await processBookmarkJob(mockJob)
+
+      // Should complete with fallback content and extraction error set
+      expect(supabaseAdmin.from).toHaveBeenCalled()
+      expect(mockJob.updateProgress).toHaveBeenCalledWith(100)
+    })
+
+    it('should set extraction_error when primary extraction returns null for web source', async () => {
+      vi.mocked(extractContent).mockResolvedValue(null)
+      vi.mocked(extractOGMetadata).mockResolvedValue(null)
+
+      await processBookmarkJob(mockJob)
+
+      // Should complete with fallback content and extraction error set
+      expect(supabaseAdmin.from).toHaveBeenCalled()
+      expect(mockJob.updateProgress).toHaveBeenCalledWith(100)
+    })
+
+    it('should set extraction_error with OG metadata failure details', async () => {
+      vi.mocked(extractContent).mockResolvedValue(null)
+      vi.mocked(extractOGMetadata).mockRejectedValue(new Error('Network timeout'))
+
+      await processBookmarkJob(mockJob)
+
+      // Should complete with fallback and extraction error including OG failure
+      expect(supabaseAdmin.from).toHaveBeenCalled()
+    })
+
+    it('should NOT set extraction_error when extraction succeeds', async () => {
+      vi.mocked(extractContent).mockResolvedValue(createMockExtractedContent())
+
+      await processBookmarkJob(mockJob)
+
+      // Extraction succeeded, no error should be set
+      expect(supabaseAdmin.from).toHaveBeenCalled()
+    })
+
+    it('should set complete_extraction_failure when both primary and OG fail', async () => {
+      vi.mocked(extractContent).mockRejectedValue(new Error('Primary failed'))
+      vi.mocked(extractOGMetadata).mockRejectedValue(new Error('OG failed'))
+
+      await processBookmarkJob(mockJob)
+
+      // Should have complete extraction failure error
+      expect(supabaseAdmin.from).toHaveBeenCalled()
+    })
+
+    it('should set parallel_ai_extraction_failed when only primary fails for non-web source', async () => {
+      mockJob = createMockJob({ url: 'https://twitter.com/user/status/123' })
+      vi.mocked(extractContent).mockRejectedValue(new Error('Twitter extraction failed'))
+
+      await processBookmarkJob(mockJob)
+
+      // For non-web sources, OG metadata is not attempted
+      // So only parallel AI extraction failure should be recorded
+      expect(supabaseAdmin.from).toHaveBeenCalled()
+    })
+
+    it('should preserve extraction_error when AI processing fails', async () => {
+      vi.mocked(extractContent).mockRejectedValue(new Error('Extraction service down'))
+      vi.mocked(extractOGMetadata).mockResolvedValue(null)
+      vi.mocked(processContentWithRetry).mockRejectedValue(new Error('AI failed'))
+
+      await expect(processBookmarkJob(mockJob)).rejects.toThrow('AI failed')
+
+      // Extraction error should be preserved in database update
+      expect(supabaseAdmin.from).toHaveBeenCalled()
+    })
+
+    it('should log debug message when bookmark completes with extraction error and DEBUG=true', async () => {
+      const originalDebug = process.env.DEBUG
+      process.env.DEBUG = 'true'
+      const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+      vi.mocked(extractContent).mockResolvedValue(null)
+      vi.mocked(extractOGMetadata).mockResolvedValue(null)
+
+      await processBookmarkJob(mockJob)
+
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        expect.stringContaining('completed with extraction error')
+      )
+
+      consoleLogSpy.mockRestore()
+      process.env.DEBUG = originalDebug
+    })
+
+    it('should track extraction error when OG returns null after primary failure', async () => {
+      vi.mocked(extractContent).mockResolvedValue(null)
+      vi.mocked(extractOGMetadata).mockResolvedValue(null)
+
+      await processBookmarkJob(mockJob)
+
+      // Should have extraction error tracking both failures
+      expect(supabaseAdmin.from).toHaveBeenCalled()
+    })
+
+    it('should include extraction_error in partial update when AI fails with extracted content', async () => {
+      // Extraction fails but OG succeeds
+      vi.mocked(extractContent).mockResolvedValue(null)
+      vi.mocked(extractOGMetadata).mockResolvedValue({
+        ogTitle: 'OG Title',
+        ogDescription: 'OG Description',
+      } as any)
+      vi.mocked(processContentWithRetry).mockRejectedValue(new Error('AI service unavailable'))
+
+      await processBookmarkJob(mockJob)
+
+      // Should complete with extracted content and extraction error set
+      expect(supabaseAdmin.from).toHaveBeenCalled()
     })
   })
 })

@@ -19,9 +19,11 @@ export {
   prepareForClassification,
   getValidImageUrls,
   detectListIndicators,
+  MAX_CAROUSEL_IMAGES,
   type ClassificationResult,
   type ContentType,
   type ListIndicators,
+  type CarouselInfo,
 } from './classification'
 
 export {

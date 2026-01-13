@@ -5,7 +5,15 @@ import { extractInstagramContent } from './instagram'
 import { extractYouTubeContent } from './youtube'
 import { extractOGMetadata } from './og-metadata'
 import { extractWithParallel } from './parallel-client'
-import { downloadInstagramVideo, isInstagramVideoUrl } from './instagram-video'
+import {
+  downloadInstagramVideo,
+  isInstagramVideoUrl,
+  isInstagramReelUrl,
+  maybeInstagramVideo,
+  getInstagramMediaInfo,
+  shouldTranscribeInstagram,
+} from './instagram-video'
+import type { InstagramMediaInfo, CarouselItem } from './instagram-video'
 import { transcribeBuffer, isTranscriptionAvailable } from '../transcription'
 
 // Re-export the ExtractedContent type for convenience
@@ -17,7 +25,15 @@ export { extractInstagramContent } from './instagram'
 export { extractYouTubeContent } from './youtube'
 export { extractOGMetadata } from './og-metadata'
 export { extractWithParallel } from './parallel-client'
-export { downloadInstagramVideo, isInstagramVideoUrl } from './instagram-video'
+export {
+  downloadInstagramVideo,
+  isInstagramVideoUrl,
+  isInstagramReelUrl,
+  maybeInstagramVideo,
+  getInstagramMediaInfo,
+  shouldTranscribeInstagram,
+} from './instagram-video'
+export type { InstagramMediaInfo, CarouselItem } from './instagram-video'
 
 /**
  * Extract content using OG metadata as a fallback.
@@ -33,12 +49,9 @@ async function extractWithOGFallback(
   url: string,
   source: ContentSource
 ): Promise<ExtractedContent | null> {
-  console.log(`[extractors] Attempting OG metadata extraction for ${source}: ${url}`)
-
   const ogMetadata = await extractOGMetadata(url)
 
   if (!ogMetadata) {
-    console.log(`[extractors] OG metadata extraction failed for: ${url}`)
     return null
   }
 
@@ -95,12 +108,9 @@ async function extractWithParallelAI(
   url: string,
   source: ContentSource
 ): Promise<ExtractedContent | null> {
-  console.log(`[extractors] Extracting ${source} content with Parallel AI: ${url}`)
-
   const result = await extractWithParallel(url)
 
   if (!result) {
-    console.log(`[extractors] Parallel AI returned no content for: ${url}`)
     return null
   }
 
@@ -141,6 +151,8 @@ export async function extractContent(url: string): Promise<ExtractedContent | nu
   const source = detectSource(url)
   let result: ExtractedContent | null = null
 
+  console.log(`[extractors] Extracting ${source} content`)
+
   switch (source) {
     case 'twitter':
       // Twitter uses existing Gopher API extractor
@@ -148,7 +160,7 @@ export async function extractContent(url: string): Promise<ExtractedContent | nu
         result = await extractTwitterContent(url)
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        console.log(`[extractors] Twitter extraction failed: ${message}`)
+        console.error(`[extractors] Twitter extraction failed: ${message}`)
       }
       // Fall back to OG metadata if Gopher fails
       if (!result) {
@@ -158,12 +170,11 @@ export async function extractContent(url: string): Promise<ExtractedContent | nu
 
     case 'youtube':
       // YouTube: use dedicated extractor that fetches transcripts
-      console.log('[extractors] Extracting YouTube content with transcript')
       try {
         result = await extractYouTubeContent(url)
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        console.log(`[extractors] YouTube extraction failed: ${message}`)
+        console.error(`[extractors] YouTube extraction failed: ${message}`)
       }
       // Fall back to OG metadata if YouTube extractor fails
       if (!result) {
@@ -173,59 +184,16 @@ export async function extractContent(url: string): Promise<ExtractedContent | nu
 
     case 'instagram':
       // Instagram: use dedicated extractor with AI title generation
-      console.log('[extractors] Extracting Instagram content')
       try {
         result = await extractInstagramContent(url)
 
-        // If it's a reel/video and transcription is available, try to transcribe
-        if (result && isInstagramVideoUrl(url) && isTranscriptionAvailable()) {
-          console.log('[extractors] Attempting to transcribe Instagram reel')
-          console.log(`[extractors] Video URL check: isInstagramVideoUrl=${isInstagramVideoUrl(url)}, transcriptionAvailable=${isTranscriptionAvailable()}`)
-          try {
-            console.log('[extractors] Downloading Instagram video...')
-            const videoResult = await downloadInstagramVideo(url)
-            console.log(`[extractors] Video downloaded: ${videoResult.buffer.length} bytes, mimeType: ${videoResult.mimeType}`)
-
-            console.log('[extractors] Starting transcription...')
-            const transcription = await transcribeBuffer(
-              videoResult.buffer,
-              videoResult.mimeType
-            )
-
-            // Add transcript to the extracted content
-            result.transcript = transcription.text
-            result.transcriptLanguage = transcription.language
-
-            // Append transcript to content for AI processing
-            if (transcription.text) {
-              result.content = `${result.content || ''}\n\n---\n\nTranscript:\n${transcription.text}`
-              console.log(`[extractors] Transcript appended to content. Final content length: ${result.content.length}`)
-            }
-
-            console.log(
-              `[extractors] Instagram reel transcribed successfully:`
-            )
-            console.log(`[extractors]   - Length: ${transcription.text.length} chars`)
-            console.log(`[extractors]   - Language: ${transcription.language}`)
-            console.log(`[extractors]   - Duration: ${transcription.duration || 'unknown'}s`)
-            console.log(`[extractors]   - Preview: "${transcription.text.slice(0, 200)}..."`)
-          } catch (transcriptionError) {
-            const message =
-              transcriptionError instanceof Error
-                ? transcriptionError.message
-                : String(transcriptionError)
-            console.log(`[extractors] Instagram transcription failed (continuing without): ${message}`)
-            if (transcriptionError instanceof Error && transcriptionError.stack) {
-              console.log(`[extractors] Stack trace: ${transcriptionError.stack}`)
-            }
-            // Continue without transcript - we still have the other metadata
-          }
-        } else {
-          console.log(`[extractors] Skipping transcription: result=${!!result}, isVideoUrl=${isInstagramVideoUrl(url)}, transcriptionAvailable=${isTranscriptionAvailable()}`)
+        // Handle transcription for Instagram content
+        if (result && isTranscriptionAvailable()) {
+          await handleInstagramTranscription(url, result)
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        console.log(`[extractors] Instagram extraction failed: ${message}`)
+        console.error(`[extractors] Instagram extraction failed: ${message}`)
       }
       // Fall back to OG metadata if Instagram extractor fails
       if (!result) {
@@ -245,9 +213,90 @@ export async function extractContent(url: string): Promise<ExtractedContent | nu
       break
 
     default:
-      console.log(`[extractors] Unknown source: ${source}`)
       result = await extractWithOGFallback(url, source)
   }
 
+  if (result) {
+    console.log(`[extractors] Extraction successful: ${result.title}`)
+  }
+
   return result
+}
+
+/**
+ * Handle Instagram transcription logic
+ *
+ * - For reels: Always attempt transcription
+ * - For posts: Check if it's a video first using GraphQL API
+ * - For carousels: Skip transcription, store carousel info in metadata
+ */
+async function handleInstagramTranscription(
+  url: string,
+  result: ExtractedContent
+): Promise<void> {
+  // Check if this is a reel (always a video)
+  if (isInstagramReelUrl(url)) {
+    await transcribeInstagramVideo(url, result)
+    return
+  }
+
+  // Check if this might be a video post
+  if (maybeInstagramVideo(url)) {
+    // Fetch media info to determine content type
+    const mediaInfo = await getInstagramMediaInfo(url)
+
+    if (!mediaInfo) {
+      // Could not determine content type, skip
+      return
+    }
+
+    // Handle carousel posts
+    if (mediaInfo.isCarousel) {
+      // Store carousel info in metadata if not already present
+      // Note: extractInstagramContent() already handles carousel metadata and mediaUrls
+      // via extractMediaUrls(), so we only update rawMetadata if it's missing
+      if (result.rawMetadata && !result.rawMetadata.instagram?.isCarousel) {
+        result.rawMetadata.instagram = {
+          ...result.rawMetadata.instagram,
+          isCarousel: true,
+          carouselItems: mediaInfo.carouselItems,
+        }
+      }
+      // mediaUrls are already populated by extractInstagramContent() -> extractMediaUrls()
+      // so we don't need to add them again here (which would cause duplication)
+      return
+    }
+
+    // Handle video post
+    if (mediaInfo.isVideo) {
+      await transcribeInstagramVideo(url, result)
+    }
+  }
+}
+
+/**
+ * Download and transcribe an Instagram video
+ */
+async function transcribeInstagramVideo(
+  url: string,
+  result: ExtractedContent
+): Promise<void> {
+  try {
+    const videoResult = await downloadInstagramVideo(url)
+
+    const transcription = await transcribeBuffer(videoResult.buffer, videoResult.mimeType)
+
+    // Add transcript to the extracted content
+    result.transcript = transcription.text
+    result.transcriptLanguage = transcription.language
+
+    // Append transcript to content for AI processing
+    if (transcription.text) {
+      result.content = `${result.content || ''}\n\n---\n\nTranscript:\n${transcription.text}`
+    }
+  } catch (error) {
+    // Silently fail for transcription errors - we still have the other metadata
+    const message = error instanceof Error ? error.message : String(error)
+    console.error(`[extractors] Instagram transcription failed: ${message}`)
+  }
 }

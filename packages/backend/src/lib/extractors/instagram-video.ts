@@ -1,14 +1,54 @@
 /**
- * Instagram Video Downloader
+ * Instagram Video Downloader and Content Type Detection
  *
- * Downloads Instagram Reels and posts using multiple methods:
+ * Downloads Instagram Reels and video posts using multiple methods:
  * 1. Instagram GraphQL API (most reliable, no authentication needed)
  * 2. Instagram embed page extraction
  * 3. RapidAPI fallback (requires RAPIDAPI_KEY env var)
+ *
+ * Also provides content type detection:
+ * - isInstagramVideoUrl: Returns true only for /reel/ and /reels/ URLs (guaranteed videos)
+ * - maybeInstagramVideo: Returns true for /p/ and /tv/ URLs (might be videos)
+ * - getInstagramMediaInfo: Fetches GraphQL to determine actual content type
+ * - shouldTranscribeInstagram: Determines if transcription should be attempted
  */
 
 import querystring from 'querystring'
 import { parse } from 'node-html-parser'
+
+/**
+ * Check if DEBUG mode is enabled
+ */
+const isDebug = () => process.env.DEBUG === 'true'
+
+/**
+ * Log debug message only when DEBUG=true
+ */
+function debugLog(message: string): void {
+  if (isDebug()) {
+    console.log(message)
+  }
+}
+
+/**
+ * Carousel item from Instagram
+ */
+export interface CarouselItem {
+  isVideo: boolean
+  url: string
+  thumbnailUrl?: string
+}
+
+/**
+ * Instagram media info from GraphQL API
+ */
+export interface InstagramMediaInfo {
+  isVideo: boolean
+  isCarousel: boolean
+  videoUrl?: string
+  thumbnailUrl?: string
+  carouselItems?: CarouselItem[]
+}
 
 /**
  * GraphQL response from Instagram
@@ -22,6 +62,15 @@ interface GraphQLResponse {
       dimensions?: {
         width: number
         height: number
+      }
+      edge_sidecar_to_children?: {
+        edges: Array<{
+          node: {
+            is_video: boolean
+            display_url?: string
+            video_url?: string
+          }
+        }>
       }
     }
   }
@@ -61,7 +110,7 @@ const USER_AGENT =
 /**
  * Extract shortcode from Instagram URL
  */
-function extractShortcode(url: string): string | null {
+export function extractShortcode(url: string): string | null {
   const patterns = [
     /instagram\.com\/reel\/([A-Za-z0-9_-]+)/,
     /instagram\.com\/reels\/([A-Za-z0-9_-]+)/,
@@ -76,6 +125,61 @@ function extractShortcode(url: string): string | null {
     }
   }
   return null
+}
+
+/**
+ * Check if an Instagram URL is definitely a video (reel)
+ *
+ * Only returns true for /reel/ and /reels/ URLs which are guaranteed to be videos.
+ * For /p/ URLs, use maybeInstagramVideo() and getInstagramMediaInfo() to determine.
+ */
+export function isInstagramVideoUrl(url: string): boolean {
+  try {
+    const urlObj = new URL(url)
+    // Must be an Instagram domain
+    if (!urlObj.hostname.includes('instagram.com')) {
+      return false
+    }
+    const pathname = urlObj.pathname.toLowerCase()
+    // Only reels are guaranteed videos
+    if (pathname.includes('/reel/')) return true
+    if (pathname.includes('/reels/')) return true
+    // /p/ URLs can be images, videos, or carousels - need to check GraphQL
+    return false
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Check if an Instagram URL is definitely a reel
+ * Alias for isInstagramVideoUrl for semantic clarity
+ */
+export function isInstagramReelUrl(url: string): boolean {
+  return isInstagramVideoUrl(url)
+}
+
+/**
+ * Check if an Instagram URL might be a video (needs GraphQL check)
+ *
+ * Returns true for /p/ and /tv/ URLs which might be videos.
+ * These URLs need to be checked via GraphQL API to determine actual content type.
+ */
+export function maybeInstagramVideo(url: string): boolean {
+  try {
+    const urlObj = new URL(url)
+    if (!urlObj.hostname.includes('instagram.com')) {
+      return false
+    }
+    const pathname = urlObj.pathname.toLowerCase()
+    // /p/ URLs might be images, videos, or carousels
+    if (pathname.includes('/p/')) return true
+    // /tv/ URLs are IGTV videos
+    if (pathname.includes('/tv/')) return true
+    return false
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -126,12 +230,18 @@ function encodeGraphqlRequestData(shortcode: string): string {
 }
 
 /**
- * Extract video URL using Instagram's GraphQL API
+ * Fetch Instagram media info from GraphQL API
  *
- * This is the most reliable method as it uses Instagram's internal API.
+ * Returns information about whether the content is a video, image, or carousel.
+ * Also extracts carousel items if present.
  */
-async function extractVideoUrlFromGraphQL(shortcode: string): Promise<string | null> {
-  console.log(`[instagram-video] Trying GraphQL API for shortcode: ${shortcode}`)
+export async function getInstagramMediaInfo(url: string): Promise<InstagramMediaInfo | null> {
+  const shortcode = extractShortcode(url)
+  if (!shortcode) {
+    return null
+  }
+
+  debugLog(`[instagram-video] Fetching media info for shortcode: ${shortcode}`)
 
   try {
     const encodedData = encodeGraphqlRequestData(shortcode)
@@ -156,7 +266,7 @@ async function extractVideoUrlFromGraphQL(shortcode: string): Promise<string | n
     })
 
     if (!response.ok) {
-      console.log(`[instagram-video] GraphQL request failed: ${response.status}`)
+      debugLog(`[instagram-video] GraphQL request failed: ${response.status}`)
       return null
     }
 
@@ -164,25 +274,141 @@ async function extractVideoUrlFromGraphQL(shortcode: string): Promise<string | n
 
     const mediaData = data.data?.xdt_shortcode_media
     if (!mediaData) {
-      console.log(`[instagram-video] No media data in GraphQL response`)
+      debugLog(`[instagram-video] No media data in GraphQL response`)
+      return null
+    }
+
+    // Check for carousel (sidecar)
+    const sidecar = mediaData.edge_sidecar_to_children
+    if (sidecar && sidecar.edges.length > 0) {
+      debugLog(`[instagram-video] Detected carousel with ${sidecar.edges.length} items`)
+      const carouselItems: CarouselItem[] = sidecar.edges.map((edge) => {
+        const node = edge.node
+        return {
+          isVideo: node.is_video,
+          url: node.is_video ? node.video_url! : node.display_url!,
+          thumbnailUrl: node.is_video ? node.display_url : undefined,
+        }
+      })
+
+      return {
+        isVideo: false, // Carousel as a whole is not a single video
+        isCarousel: true,
+        thumbnailUrl: mediaData.display_url,
+        carouselItems,
+      }
+    }
+
+    // Single image or video
+    debugLog(`[instagram-video] Detected ${mediaData.is_video ? 'video' : 'image'} post`)
+    return {
+      isVideo: mediaData.is_video,
+      isCarousel: false,
+      videoUrl: mediaData.is_video ? mediaData.video_url : undefined,
+      thumbnailUrl: mediaData.display_url,
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    debugLog(`[instagram-video] GraphQL error: ${message}`)
+    return null
+  }
+}
+
+/**
+ * Determine if an Instagram URL should be transcribed
+ *
+ * @param url - The Instagram URL
+ * @param mediaInfo - Optional pre-fetched media info (will fetch if not provided for /p/ URLs)
+ * @returns True if the content is a video that should be transcribed
+ */
+export async function shouldTranscribeInstagram(
+  url: string,
+  mediaInfo?: InstagramMediaInfo
+): Promise<boolean> {
+  // Reels are always videos
+  if (isInstagramReelUrl(url)) {
+    return true
+  }
+
+  // Check if this might be a video post
+  if (maybeInstagramVideo(url)) {
+    // Use provided media info or fetch it
+    const info = mediaInfo ?? (await getInstagramMediaInfo(url))
+    if (!info) {
+      // Could not determine content type, skip transcription
+      return false
+    }
+
+    // Don't transcribe carousels (even if they contain videos)
+    if (info.isCarousel) {
+      return false
+    }
+
+    // Only transcribe if it's a video
+    return info.isVideo
+  }
+
+  return false
+}
+
+/**
+ * Extract video URL using Instagram's GraphQL API
+ *
+ * This is the most reliable method as it uses Instagram's internal API.
+ */
+async function extractVideoUrlFromGraphQL(shortcode: string): Promise<string | null> {
+  debugLog(`[instagram-video] Trying GraphQL API for shortcode: ${shortcode}`)
+
+  try {
+    const encodedData = encodeGraphqlRequestData(shortcode)
+
+    const response = await fetch('https://www.instagram.com/api/graphql', {
+      method: 'POST',
+      headers: {
+        Accept: '*/*',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'X-FB-Friendly-Name': 'PolarisPostActionLoadPostQueryQuery',
+        'X-CSRFToken': 'RVDUooU5MYsBbS1CNN3CzVAuEP8oHB52',
+        'X-IG-App-ID': '1217981644879628',
+        'X-FB-LSD': 'AVqbxe3J_YA',
+        'X-ASBD-ID': '129477',
+        'Sec-Fetch-Dest': 'empty',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'same-origin',
+        'User-Agent': USER_AGENT,
+      },
+      body: encodedData,
+    })
+
+    if (!response.ok) {
+      debugLog(`[instagram-video] GraphQL request failed: ${response.status}`)
+      return null
+    }
+
+    const data = (await response.json()) as GraphQLResponse
+
+    const mediaData = data.data?.xdt_shortcode_media
+    if (!mediaData) {
+      debugLog(`[instagram-video] No media data in GraphQL response`)
       return null
     }
 
     if (!mediaData.is_video) {
-      console.log(`[instagram-video] Content is not a video`)
+      debugLog(`[instagram-video] Content is not a video`)
       return null
     }
 
     if (mediaData.video_url) {
-      console.log(`[instagram-video] Got video URL from GraphQL: ${mediaData.video_url.slice(0, 100)}...`)
+      debugLog(`[instagram-video] Got video URL from GraphQL`)
       return mediaData.video_url
     }
 
-    console.log(`[instagram-video] No video_url in GraphQL response`)
+    debugLog(`[instagram-video] No video_url in GraphQL response`)
     return null
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    console.log(`[instagram-video] GraphQL error: ${message}`)
+    debugLog(`[instagram-video] GraphQL error: ${message}`)
     return null
   }
 }
@@ -191,7 +417,7 @@ async function extractVideoUrlFromGraphQL(shortcode: string): Promise<string | n
  * Extract video URL from Instagram post page HTML using OG meta tag
  */
 async function extractVideoUrlFromPage(shortcode: string): Promise<string | null> {
-  console.log(`[instagram-video] Trying direct page fetch for shortcode: ${shortcode}`)
+  debugLog(`[instagram-video] Trying direct page fetch for shortcode: ${shortcode}`)
 
   try {
     const response = await fetch(`https://www.instagram.com/p/${shortcode}/`, {
@@ -209,7 +435,7 @@ async function extractVideoUrlFromPage(shortcode: string): Promise<string | null
     })
 
     if (!response.ok) {
-      console.log(`[instagram-video] Page fetch failed: ${response.status}`)
+      debugLog(`[instagram-video] Page fetch failed: ${response.status}`)
       return null
     }
 
@@ -221,7 +447,7 @@ async function extractVideoUrlFromPage(shortcode: string): Promise<string | null
     if (videoMeta) {
       const content = videoMeta.getAttribute('content')
       if (content) {
-        console.log(`[instagram-video] Found og:video URL: ${content.slice(0, 100)}...`)
+        debugLog(`[instagram-video] Found og:video URL`)
         return content
       }
     }
@@ -232,15 +458,15 @@ async function extractVideoUrlFromPage(shortcode: string): Promise<string | null
       let videoUrl = videoUrlMatch[1]
       // Unescape the URL
       videoUrl = videoUrl.replace(/\\u0026/g, '&').replace(/\\\//g, '/')
-      console.log(`[instagram-video] Found video_url in JSON: ${videoUrl.slice(0, 100)}...`)
+      debugLog(`[instagram-video] Found video_url in JSON`)
       return videoUrl
     }
 
-    console.log(`[instagram-video] No video URL found in page`)
+    debugLog(`[instagram-video] No video URL found in page`)
     return null
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    console.log(`[instagram-video] Page fetch error: ${message}`)
+    debugLog(`[instagram-video] Page fetch error: ${message}`)
     return null
   }
 }
@@ -251,7 +477,7 @@ async function extractVideoUrlFromPage(shortcode: string): Promise<string | null
 async function extractVideoUrlFromEmbed(instagramUrl: string): Promise<string | null> {
   // Convert to embed URL
   const embedUrl = instagramUrl.replace(/\?.*$/, '') + '/embed/'
-  console.log(`[instagram-video] Fetching embed page: ${embedUrl}`)
+  debugLog(`[instagram-video] Fetching embed page`)
 
   try {
     const response = await fetch(embedUrl, {
@@ -263,7 +489,7 @@ async function extractVideoUrlFromEmbed(instagramUrl: string): Promise<string | 
     })
 
     if (!response.ok) {
-      console.log(`[instagram-video] Embed fetch failed: ${response.status}`)
+      debugLog(`[instagram-video] Embed fetch failed: ${response.status}`)
       return null
     }
 
@@ -271,7 +497,7 @@ async function extractVideoUrlFromEmbed(instagramUrl: string): Promise<string | 
 
     // Check if embed is broken
     if (html.includes('EmbedIsBroken')) {
-      console.log(`[instagram-video] Embed page shows content is broken/removed`)
+      debugLog(`[instagram-video] Embed page shows content is broken/removed`)
       return null
     }
 
@@ -286,7 +512,7 @@ async function extractVideoUrlFromEmbed(instagramUrl: string): Promise<string | 
         .replace(/\\u0026/g, '&')
         .replace(/\\u00253D/g, '=')
         .replace(/\\u0025/g, '%')
-      console.log(`[instagram-video] Found video_url in embed: ${videoUrl.slice(0, 100)}...`)
+      debugLog(`[instagram-video] Found video_url in embed`)
       return videoUrl
     }
 
@@ -296,16 +522,16 @@ async function extractVideoUrlFromEmbed(instagramUrl: string): Promise<string | 
     if (videoElement) {
       const src = videoElement.getAttribute('src')
       if (src) {
-        console.log(`[instagram-video] Found video src in HTML: ${src.slice(0, 100)}...`)
+        debugLog(`[instagram-video] Found video src in HTML`)
         return src
       }
     }
 
-    console.log(`[instagram-video] No video URL found in embed page`)
+    debugLog(`[instagram-video] No video URL found in embed page`)
     return null
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    console.log(`[instagram-video] Embed error: ${message}`)
+    debugLog(`[instagram-video] Embed error: ${message}`)
     return null
   }
 }
@@ -316,11 +542,11 @@ async function extractVideoUrlFromEmbed(instagramUrl: string): Promise<string | 
 async function downloadViaRapidAPI(shortcode: string): Promise<InstagramVideoResult | null> {
   const rapidApiKey = process.env.RAPIDAPI_KEY
   if (!rapidApiKey) {
-    console.log(`[instagram-video] RAPIDAPI_KEY not set, skipping RapidAPI fallback`)
+    debugLog(`[instagram-video] RAPIDAPI_KEY not set, skipping RapidAPI fallback`)
     return null
   }
 
-  console.log(`[instagram-video] Trying RapidAPI fallback...`)
+  debugLog(`[instagram-video] Trying RapidAPI fallback`)
 
   try {
     const response = await fetch(
@@ -334,7 +560,7 @@ async function downloadViaRapidAPI(shortcode: string): Promise<InstagramVideoRes
     )
 
     if (!response.ok) {
-      console.log(`[instagram-video] RapidAPI request failed: ${response.status}`)
+      debugLog(`[instagram-video] RapidAPI request failed: ${response.status}`)
       return null
     }
 
@@ -348,15 +574,15 @@ async function downloadViaRapidAPI(shortcode: string): Promise<InstagramVideoRes
     }
 
     if (!videoUrl) {
-      console.log(`[instagram-video] No video URL in RapidAPI response`)
+      debugLog(`[instagram-video] No video URL in RapidAPI response`)
       return null
     }
 
-    console.log(`[instagram-video] Got video URL from RapidAPI: ${videoUrl.slice(0, 100)}...`)
+    debugLog(`[instagram-video] Got video URL from RapidAPI`)
     return await downloadVideoFromUrl(videoUrl)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    console.log(`[instagram-video] RapidAPI error: ${message}`)
+    debugLog(`[instagram-video] RapidAPI error: ${message}`)
     return null
   }
 }
@@ -365,7 +591,7 @@ async function downloadViaRapidAPI(shortcode: string): Promise<InstagramVideoRes
  * Download video from a direct URL
  */
 async function downloadVideoFromUrl(videoUrl: string): Promise<InstagramVideoResult> {
-  console.log(`[instagram-video] Downloading video from URL...`)
+  debugLog(`[instagram-video] Downloading video from URL`)
 
   const videoResponse = await fetch(videoUrl, {
     headers: {
@@ -381,7 +607,7 @@ async function downloadVideoFromUrl(videoUrl: string): Promise<InstagramVideoRes
   const contentType = videoResponse.headers.get('content-type') || 'video/mp4'
   const buffer = Buffer.from(await videoResponse.arrayBuffer())
 
-  console.log(`[instagram-video] Downloaded ${buffer.length} bytes, type: ${contentType}`)
+  debugLog(`[instagram-video] Downloaded ${buffer.length} bytes`)
 
   // Validate it's actually a video
   if (buffer.length < 1000) {
@@ -411,14 +637,14 @@ async function downloadVideoFromUrl(videoUrl: string): Promise<InstagramVideoRes
 export async function downloadInstagramVideo(
   instagramUrl: string
 ): Promise<InstagramVideoResult> {
-  console.log(`[instagram-video] Downloading video from: ${instagramUrl}`)
+  debugLog(`[instagram-video] Downloading video from: ${instagramUrl}`)
 
   // Extract shortcode from URL
   const shortcode = extractShortcode(instagramUrl)
   if (!shortcode) {
     throw new Error(`Could not extract shortcode from URL: ${instagramUrl}`)
   }
-  console.log(`[instagram-video] Extracted shortcode: ${shortcode}`)
+  debugLog(`[instagram-video] Extracted shortcode: ${shortcode}`)
 
   // Method 1: Try GraphQL API (most reliable)
   const graphqlVideoUrl = await extractVideoUrlFromGraphQL(shortcode)
@@ -427,7 +653,7 @@ export async function downloadInstagramVideo(
       return await downloadVideoFromUrl(graphqlVideoUrl)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      console.log(`[instagram-video] GraphQL download failed: ${message}`)
+      debugLog(`[instagram-video] GraphQL download failed: ${message}`)
     }
   }
 
@@ -438,7 +664,7 @@ export async function downloadInstagramVideo(
       return await downloadVideoFromUrl(pageVideoUrl)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      console.log(`[instagram-video] Page download failed: ${message}`)
+      debugLog(`[instagram-video] Page download failed: ${message}`)
     }
   }
 
@@ -449,7 +675,7 @@ export async function downloadInstagramVideo(
       return await downloadVideoFromUrl(embedVideoUrl)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      console.log(`[instagram-video] Embed download failed: ${message}`)
+      debugLog(`[instagram-video] Embed download failed: ${message}`)
     }
   }
 
@@ -460,21 +686,4 @@ export async function downloadInstagramVideo(
   }
 
   throw new Error('All Instagram video download methods failed')
-}
-
-/**
- * Check if an Instagram URL is a video (reel or video post)
- */
-export function isInstagramVideoUrl(url: string): boolean {
-  try {
-    const pathname = new URL(url).pathname.toLowerCase()
-    // Reels are always videos
-    if (pathname.includes('/reel/')) return true
-    if (pathname.includes('/reels/')) return true
-    // Posts could be images or videos - we try to download anyway
-    if (pathname.includes('/p/')) return true
-    return false
-  } catch {
-    return false
-  }
 }

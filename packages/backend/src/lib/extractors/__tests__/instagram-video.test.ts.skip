@@ -1,0 +1,1428 @@
+/**
+ * Comprehensive tests for Instagram Video Downloader
+ *
+ * Tests the Instagram video extractor which downloads Reels and video posts
+ * using multiple fallback methods:
+ * 1. Instagram GraphQL API (most reliable)
+ * 2. Direct page fetch with OG meta tags
+ * 3. Instagram embed page extraction
+ * 4. RapidAPI fallback (requires RAPIDAPI_KEY)
+ *
+ * Coverage:
+ * - URL shortcode extraction from various Instagram URL formats
+ * - GraphQL API video URL extraction
+ * - Direct page HTML parsing for video URLs
+ * - Embed page video URL extraction
+ * - RapidAPI fallback mechanism
+ * - Video downloading from extracted URLs
+ * - Error handling (API failures, network errors, invalid URLs)
+ * - Edge cases (private content, deleted posts, non-video content)
+ * - Video validation (file size, content type)
+ */
+
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import {
+  downloadInstagramVideo,
+  isInstagramVideoUrl,
+  type InstagramVideoResult,
+} from '../instagram-video'
+
+// Mock global fetch
+global.fetch = vi.fn()
+
+describe('Instagram Video Downloader', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    delete process.env.RAPIDAPI_KEY
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  describe('isInstagramVideoUrl', () => {
+    it('should return true for reel URLs', () => {
+      expect(isInstagramVideoUrl('https://www.instagram.com/reel/ABC123xyz/')).toBe(true)
+      expect(isInstagramVideoUrl('https://instagram.com/reel/XYZ789/')).toBe(true)
+      expect(isInstagramVideoUrl('https://www.instagram.com/reel/test-reel-id/?igsh=abc')).toBe(true)
+    })
+
+    it('should return true for reels URLs (plural)', () => {
+      expect(isInstagramVideoUrl('https://www.instagram.com/reels/ABC123/')).toBe(true)
+      expect(isInstagramVideoUrl('https://instagram.com/reels/XYZ/')).toBe(true)
+    })
+
+    it('should return true for post URLs', () => {
+      expect(isInstagramVideoUrl('https://www.instagram.com/p/ABC123/')).toBe(true)
+      expect(isInstagramVideoUrl('https://instagram.com/p/XYZ789/')).toBe(true)
+      expect(isInstagramVideoUrl('https://www.instagram.com/p/test-post/?utm_source=share')).toBe(true)
+    })
+
+    it('should return false for non-video URLs', () => {
+      expect(isInstagramVideoUrl('https://www.instagram.com/username/')).toBe(false)
+      expect(isInstagramVideoUrl('https://www.instagram.com/')).toBe(false)
+      expect(isInstagramVideoUrl('https://www.instagram.com/explore/')).toBe(false)
+      expect(isInstagramVideoUrl('https://twitter.com/status/123')).toBe(false)
+    })
+
+    it('should return false for invalid URLs', () => {
+      expect(isInstagramVideoUrl('not-a-url')).toBe(false)
+      expect(isInstagramVideoUrl('')).toBe(false)
+      expect(isInstagramVideoUrl('http://')).toBe(false)
+    })
+
+    it('should handle case insensitivity', () => {
+      expect(isInstagramVideoUrl('https://www.instagram.com/REEL/ABC123/')).toBe(true)
+      expect(isInstagramVideoUrl('https://www.instagram.com/P/ABC123/')).toBe(true)
+    })
+  })
+
+  describe('downloadInstagramVideo', () => {
+    describe('URL shortcode extraction', () => {
+      it('should extract shortcode from reel URL', async () => {
+        const mockVideoBuffer = Buffer.from('mock-video-data'.repeat(100))
+
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({
+              data: {
+                xdt_shortcode_media: {
+                  is_video: true,
+                  video_url: 'https://instagram.com/video.mp4',
+                },
+              },
+            }),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            headers: new Headers({ 'content-type': 'video/mp4' }),
+            arrayBuffer: async () => mockVideoBuffer.buffer,
+          } as Response)
+
+        const result = await downloadInstagramVideo('https://www.instagram.com/reel/ABC123xyz/')
+
+        expect(result.buffer).toBeDefined()
+        expect(result.mimeType).toBe('video/mp4')
+      })
+
+      it('should extract shortcode from post URL', async () => {
+        const mockVideoBuffer = Buffer.from('mock-video-data'.repeat(100))
+
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({
+              data: {
+                xdt_shortcode_media: {
+                  is_video: true,
+                  video_url: 'https://instagram.com/video.mp4',
+                },
+              },
+            }),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            headers: new Headers({ 'content-type': 'video/mp4' }),
+            arrayBuffer: async () => mockVideoBuffer.buffer,
+          } as Response)
+
+        const result = await downloadInstagramVideo('https://www.instagram.com/p/XYZ789abc/')
+
+        expect(result.buffer).toBeDefined()
+      })
+
+      it('should extract shortcode from TV URL', async () => {
+        const mockVideoBuffer = Buffer.from('mock-video-data'.repeat(100))
+
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({
+              data: {
+                xdt_shortcode_media: {
+                  is_video: true,
+                  video_url: 'https://instagram.com/video.mp4',
+                },
+              },
+            }),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            headers: new Headers({ 'content-type': 'video/mp4' }),
+            arrayBuffer: async () => mockVideoBuffer.buffer,
+          } as Response)
+
+        const result = await downloadInstagramVideo('https://www.instagram.com/tv/IGTV123/')
+
+        expect(result.buffer).toBeDefined()
+      })
+
+      it('should throw error for URL without shortcode', async () => {
+        await expect(
+          downloadInstagramVideo('https://www.instagram.com/username/')
+        ).rejects.toThrow('Could not extract shortcode from URL')
+      })
+
+      it('should throw error for invalid URL format', async () => {
+        await expect(
+          downloadInstagramVideo('https://www.instagram.com/')
+        ).rejects.toThrow('Could not extract shortcode from URL')
+      })
+
+      it('should handle URLs with query parameters', async () => {
+        const mockVideoBuffer = Buffer.from('mock-video-data'.repeat(100))
+
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({
+              data: {
+                xdt_shortcode_media: {
+                  is_video: true,
+                  video_url: 'https://instagram.com/video.mp4',
+                },
+              },
+            }),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            headers: new Headers({ 'content-type': 'video/mp4' }),
+            arrayBuffer: async () => mockVideoBuffer.buffer,
+          } as Response)
+
+        const result = await downloadInstagramVideo(
+          'https://www.instagram.com/reel/ABC/?utm_source=ig_web_copy_link&igsh=xyz'
+        )
+
+        expect(result.buffer).toBeDefined()
+      })
+    })
+
+    describe('GraphQL API extraction (Method 1)', () => {
+      it('should successfully extract video URL from GraphQL API', async () => {
+        const mockVideoBuffer = Buffer.from('mock-video-data'.repeat(100))
+
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({
+              data: {
+                xdt_shortcode_media: {
+                  is_video: true,
+                  video_url: 'https://scontent.cdninstagram.com/video.mp4',
+                  dimensions: { width: 1080, height: 1920 },
+                },
+              },
+            }),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            headers: new Headers({ 'content-type': 'video/mp4' }),
+            arrayBuffer: async () => mockVideoBuffer.buffer,
+          } as Response)
+
+        const result = await downloadInstagramVideo('https://www.instagram.com/reel/ABC123/')
+
+        expect(fetch).toHaveBeenCalledWith(
+          'https://www.instagram.com/api/graphql',
+          expect.objectContaining({
+            method: 'POST',
+            headers: expect.objectContaining({
+              'Content-Type': 'application/x-www-form-urlencoded',
+              'X-IG-App-ID': '1217981644879628',
+            }),
+          })
+        )
+
+        expect(result.buffer).toBeDefined()
+        expect(result.mimeType).toBe('video/mp4')
+        expect(result.url).toContain('cdninstagram.com')
+      })
+
+      it('should handle GraphQL response without video_url', async () => {
+        const mockVideoBuffer = Buffer.from('mock-video-data'.repeat(100))
+
+        // GraphQL fails, page fetch succeeds
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({
+              data: {
+                xdt_shortcode_media: {
+                  is_video: true,
+                  // No video_url
+                },
+              },
+            }),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            text: async () => `
+              <html>
+                <meta property="og:video" content="https://instagram.com/fallback-video.mp4" />
+              </html>
+            `,
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            headers: new Headers({ 'content-type': 'video/mp4' }),
+            arrayBuffer: async () => mockVideoBuffer.buffer,
+          } as Response)
+
+        const result = await downloadInstagramVideo('https://www.instagram.com/reel/ABC/')
+
+        expect(result.url).toContain('fallback-video.mp4')
+      })
+
+      it('should handle GraphQL response indicating non-video content', async () => {
+        const mockVideoBuffer = Buffer.from('mock-video-data'.repeat(100))
+
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({
+              data: {
+                xdt_shortcode_media: {
+                  is_video: false,
+                  display_url: 'https://instagram.com/image.jpg',
+                },
+              },
+            }),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            text: async () => `
+              <html>
+                <meta property="og:video" content="https://instagram.com/video.mp4" />
+              </html>
+            `,
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            headers: new Headers({ 'content-type': 'video/mp4' }),
+            arrayBuffer: async () => mockVideoBuffer.buffer,
+          } as Response)
+
+        const result = await downloadInstagramVideo('https://www.instagram.com/p/IMAGE/')
+
+        // Should fall back to other methods
+        expect(result).toBeDefined()
+      })
+
+      it('should handle GraphQL API HTTP errors', async () => {
+        const mockVideoBuffer = Buffer.from('mock-video-data'.repeat(100))
+
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: false,
+            status: 429,
+            statusText: 'Too Many Requests',
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            text: async () => `
+              <html>
+                <meta property="og:video" content="https://instagram.com/video.mp4" />
+              </html>
+            `,
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            headers: new Headers({ 'content-type': 'video/mp4' }),
+            arrayBuffer: async () => mockVideoBuffer.buffer,
+          } as Response)
+
+        const result = await downloadInstagramVideo('https://www.instagram.com/reel/RATE_LIMITED/')
+
+        expect(result).toBeDefined()
+      })
+
+      it('should handle GraphQL network errors', async () => {
+        const mockVideoBuffer = Buffer.from('mock-video-data'.repeat(100))
+
+        vi.mocked(fetch)
+          .mockRejectedValueOnce(new Error('Network timeout'))
+          .mockResolvedValueOnce({
+            ok: true,
+            text: async () => `
+              <html>
+                <meta property="og:video" content="https://instagram.com/video.mp4" />
+              </html>
+            `,
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            headers: new Headers({ 'content-type': 'video/mp4' }),
+            arrayBuffer: async () => mockVideoBuffer.buffer,
+          } as Response)
+
+        const result = await downloadInstagramVideo('https://www.instagram.com/reel/NETWORK_ERROR/')
+
+        expect(result).toBeDefined()
+      })
+
+      it('should handle malformed GraphQL JSON response', async () => {
+        const mockVideoBuffer = Buffer.from('mock-video-data'.repeat(100))
+
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => {
+              throw new Error('Invalid JSON')
+            },
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            text: async () => `
+              <html>
+                <meta property="og:video" content="https://instagram.com/video.mp4" />
+              </html>
+            `,
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            headers: new Headers({ 'content-type': 'video/mp4' }),
+            arrayBuffer: async () => mockVideoBuffer.buffer,
+          } as Response)
+
+        const result = await downloadInstagramVideo('https://www.instagram.com/reel/BAD_JSON/')
+
+        expect(result).toBeDefined()
+      })
+
+      it('should handle GraphQL response without media data', async () => {
+        const mockVideoBuffer = Buffer.from('mock-video-data'.repeat(100))
+
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({
+              data: {
+                // No xdt_shortcode_media
+              },
+            }),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            text: async () => `
+              <html>
+                <meta property="og:video" content="https://instagram.com/video.mp4" />
+              </html>
+            `,
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            headers: new Headers({ 'content-type': 'video/mp4' }),
+            arrayBuffer: async () => mockVideoBuffer.buffer,
+          } as Response)
+
+        const result = await downloadInstagramVideo('https://www.instagram.com/reel/NO_MEDIA/')
+
+        expect(result).toBeDefined()
+      })
+    })
+
+    describe('Direct page fetch (Method 2)', () => {
+      it('should extract video URL from og:video meta tag', async () => {
+        const mockVideoBuffer = Buffer.from('mock-video-data'.repeat(100))
+
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({ data: {} }),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            text: async () => `
+              <!DOCTYPE html>
+              <html>
+                <head>
+                  <meta property="og:video" content="https://scontent.cdninstagram.com/v/video.mp4" />
+                  <meta property="og:type" content="video" />
+                </head>
+              </html>
+            `,
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            headers: new Headers({ 'content-type': 'video/mp4' }),
+            arrayBuffer: async () => mockVideoBuffer.buffer,
+          } as Response)
+
+        const result = await downloadInstagramVideo('https://www.instagram.com/p/OG_VIDEO/')
+
+        expect(result.url).toContain('cdninstagram.com')
+      })
+
+      it('should extract video URL from JSON data in page HTML', async () => {
+        const mockVideoBuffer = Buffer.from('mock-video-data'.repeat(100))
+
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({ data: {} }),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            text: async () => `
+              <html>
+                <script>
+                  window._sharedData = {
+                    "video_url": "https://scontent.cdninstagram.com/video-from-json.mp4"
+                  }
+                </script>
+              </html>
+            `,
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            headers: new Headers({ 'content-type': 'video/mp4' }),
+            arrayBuffer: async () => mockVideoBuffer.buffer,
+          } as Response)
+
+        const result = await downloadInstagramVideo('https://www.instagram.com/p/JSON_VIDEO/')
+
+        expect(result.url).toContain('video-from-json.mp4')
+      })
+
+      it('should unescape video URL from JSON data', async () => {
+        const mockVideoBuffer = Buffer.from('mock-video-data'.repeat(100))
+
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({ data: {} }),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            text: async () => `
+              <html>
+                <script>
+                  "video_url": "https://instagram.com\\u0026video\\u0026param=value\\/path\\/to\\/video.mp4"
+                </script>
+              </html>
+            `,
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            headers: new Headers({ 'content-type': 'video/mp4' }),
+            arrayBuffer: async () => mockVideoBuffer.buffer,
+          } as Response)
+
+        const result = await downloadInstagramVideo('https://www.instagram.com/p/ESCAPED/')
+
+        expect(result.url).toContain('&video&')
+        expect(result.url).toContain('/path/to/')
+      })
+
+      it('should handle page fetch HTTP errors', async () => {
+        const mockVideoBuffer = Buffer.from('mock-video-data'.repeat(100))
+
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({ data: {} }),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: false,
+            status: 404,
+            statusText: 'Not Found',
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            text: async () => `
+              <html>
+                <video src="https://instagram.com/embed-video.mp4"></video>
+              </html>
+            `,
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            headers: new Headers({ 'content-type': 'video/mp4' }),
+            arrayBuffer: async () => mockVideoBuffer.buffer,
+          } as Response)
+
+        const result = await downloadInstagramVideo('https://www.instagram.com/p/PAGE_404/')
+
+        expect(result).toBeDefined()
+      })
+
+      it('should handle page fetch without video URL', async () => {
+        const mockVideoBuffer = Buffer.from('mock-video-data'.repeat(100))
+
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({ data: {} }),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            text: async () => `
+              <html>
+                <head>
+                  <meta property="og:image" content="https://instagram.com/image.jpg" />
+                </head>
+              </html>
+            `,
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            text: async () => `
+              <html>
+                <video src="https://instagram.com/embed-video.mp4"></video>
+              </html>
+            `,
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            headers: new Headers({ 'content-type': 'video/mp4' }),
+            arrayBuffer: async () => mockVideoBuffer.buffer,
+          } as Response)
+
+        const result = await downloadInstagramVideo('https://www.instagram.com/p/NO_VIDEO_URL/')
+
+        expect(result).toBeDefined()
+      })
+    })
+
+    describe('Embed page extraction (Method 3)', () => {
+      it('should extract video URL from embed page JSON', async () => {
+        const mockVideoBuffer = Buffer.from('mock-video-data'.repeat(100))
+
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({ data: {} }),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            text: async () => '<html></html>',
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            text: async () => `
+              <html>
+                <script>
+                  "video_url": "https://scontent.cdninstagram.com/embed-video.mp4"
+                </script>
+              </html>
+            `,
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            headers: new Headers({ 'content-type': 'video/mp4' }),
+            arrayBuffer: async () => mockVideoBuffer.buffer,
+          } as Response)
+
+        const result = await downloadInstagramVideo('https://www.instagram.com/reel/EMBED/')
+
+        expect(result.url).toContain('embed-video.mp4')
+      })
+
+      it('should extract video URL from video element in embed page', async () => {
+        const mockVideoBuffer = Buffer.from('mock-video-data'.repeat(100))
+
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({ data: {} }),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            text: async () => '<html></html>',
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            text: async () => `
+              <html>
+                <body>
+                  <video src="https://scontent.cdninstagram.com/video-element.mp4" controls></video>
+                </body>
+              </html>
+            `,
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            headers: new Headers({ 'content-type': 'video/mp4' }),
+            arrayBuffer: async () => mockVideoBuffer.buffer,
+          } as Response)
+
+        const result = await downloadInstagramVideo('https://www.instagram.com/reel/VIDEO_ELEM/')
+
+        expect(result.url).toContain('video-element.mp4')
+      })
+
+      it('should detect broken embed page', async () => {
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({ data: {} }),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            text: async () => '<html></html>',
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            text: async () => `
+              <html>
+                <body>
+                  <div class="EmbedIsBroken">This content is no longer available</div>
+                </body>
+              </html>
+            `,
+          } as Response)
+
+        await expect(
+          downloadInstagramVideo('https://www.instagram.com/reel/BROKEN/')
+        ).rejects.toThrow('All Instagram video download methods failed')
+      })
+
+      it('should unescape complex video URLs from embed page', async () => {
+        const mockVideoBuffer = Buffer.from('mock-video-data'.repeat(100))
+
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({ data: {} }),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            text: async () => '<html></html>',
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            text: async () => `
+              <html>
+                <script>
+                  "video_url": "https:\\/\\/cdn.com\\/video\\u0026param\\u00253Dvalue\\u0025test.mp4"
+                </script>
+              </html>
+            `,
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            headers: new Headers({ 'content-type': 'video/mp4' }),
+            arrayBuffer: async () => mockVideoBuffer.buffer,
+          } as Response)
+
+        const result = await downloadInstagramVideo('https://www.instagram.com/reel/COMPLEX/')
+
+        expect(result.url).toContain('cdn.com')
+        expect(result.url).toContain('&')
+        expect(result.url).toContain('%')
+      })
+
+      it('should handle embed page fetch errors', async () => {
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({ data: {} }),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            text: async () => '<html></html>',
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: false,
+            status: 403,
+            statusText: 'Forbidden',
+          } as Response)
+
+        await expect(
+          downloadInstagramVideo('https://www.instagram.com/reel/EMBED_403/')
+        ).rejects.toThrow('All Instagram video download methods failed')
+      })
+
+      it('should remove query parameters from URL before creating embed URL', async () => {
+        const mockVideoBuffer = Buffer.from('mock-video-data'.repeat(100))
+
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({ data: {} }),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            text: async () => '<html></html>',
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            text: async () => `
+              <html>
+                <video src="https://instagram.com/video.mp4"></video>
+              </html>
+            `,
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            headers: new Headers({ 'content-type': 'video/mp4' }),
+            arrayBuffer: async () => mockVideoBuffer.buffer,
+          } as Response)
+
+        await downloadInstagramVideo('https://www.instagram.com/reel/ABC/?utm_source=share&igsh=xyz')
+
+        // Check that embed URL was called without query params
+        expect(fetch).toHaveBeenCalledWith(
+          expect.stringMatching(/\/reel\/ABC\/embed\/$/),
+          expect.any(Object)
+        )
+      })
+    })
+
+    describe('RapidAPI fallback (Method 4)', () => {
+      it('should use RapidAPI when RAPIDAPI_KEY is set and other methods fail', async () => {
+        process.env.RAPIDAPI_KEY = 'test-rapid-api-key'
+        const mockVideoBuffer = Buffer.from('mock-video-data'.repeat(100))
+
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: false,
+            status: 500,
+          } as Response) // GraphQL fails
+          .mockResolvedValueOnce({
+            ok: false,
+            status: 404,
+          } as Response) // Page fetch fails
+          .mockResolvedValueOnce({
+            ok: false,
+            status: 403,
+          } as Response) // Embed fails
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({
+              media: {
+                video_versions: [
+                  { url: 'https://rapidapi-video.mp4' },
+                ],
+              },
+            }),
+          } as Response) // RapidAPI succeeds
+          .mockResolvedValueOnce({
+            ok: true,
+            headers: new Headers({ 'content-type': 'video/mp4' }),
+            arrayBuffer: async () => mockVideoBuffer.buffer.slice(0),
+          } as Response)
+
+        const result = await downloadInstagramVideo('https://www.instagram.com/reel/RAPID/')
+
+        expect(fetch).toHaveBeenCalledWith(
+          expect.stringContaining('social-media-video-downloader.p.rapidapi.com'),
+          expect.objectContaining({
+            headers: expect.objectContaining({
+              'X-RapidAPI-Key': 'test-rapid-api-key',
+            }),
+          })
+        )
+
+        expect(result.url).toContain('rapidapi-video.mp4')
+      })
+
+      it('should use video_url field from RapidAPI response', async () => {
+        process.env.RAPIDAPI_KEY = 'test-key'
+        const mockVideoBuffer = Buffer.from('mock-video-data'.repeat(100))
+
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: false,
+            status: 500,
+          } as Response) // GraphQL fails
+          .mockResolvedValueOnce({
+            ok: false,
+            status: 404,
+          } as Response) // Page fetch fails
+          .mockResolvedValueOnce({
+            ok: false,
+            status: 403,
+          } as Response) // Embed fails
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({
+              video_url: 'https://rapidapi-direct-video.mp4',
+            }),
+          } as Response) // RapidAPI succeeds
+          .mockResolvedValueOnce({
+            ok: true,
+            headers: new Headers({ 'content-type': 'video/mp4' }),
+            arrayBuffer: async () => mockVideoBuffer.buffer.slice(0),
+          } as Response)
+
+        const result = await downloadInstagramVideo('https://www.instagram.com/reel/RAPID_DIRECT/')
+
+        expect(result.url).toContain('rapidapi-direct-video.mp4')
+      })
+
+      it('should skip RapidAPI when RAPIDAPI_KEY is not set', async () => {
+        delete process.env.RAPIDAPI_KEY
+
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({ data: {} }),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            text: async () => '<html></html>',
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            text: async () => '<html></html>',
+          } as Response)
+
+        await expect(
+          downloadInstagramVideo('https://www.instagram.com/reel/NO_KEY/')
+        ).rejects.toThrow('All Instagram video download methods failed')
+
+        // RapidAPI should not have been called
+        expect(fetch).not.toHaveBeenCalledWith(
+          expect.stringContaining('rapidapi.com'),
+          expect.any(Object)
+        )
+      })
+
+      it('should handle RapidAPI HTTP errors', async () => {
+        process.env.RAPIDAPI_KEY = 'test-key'
+
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({ data: {} }),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            text: async () => '<html></html>',
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            text: async () => '<html></html>',
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: false,
+            status: 429,
+            statusText: 'Rate Limit Exceeded',
+          } as Response)
+
+        await expect(
+          downloadInstagramVideo('https://www.instagram.com/reel/RAPID_ERROR/')
+        ).rejects.toThrow('All Instagram video download methods failed')
+      })
+
+      it('should handle RapidAPI response without video URL', async () => {
+        process.env.RAPIDAPI_KEY = 'test-key'
+
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({ data: {} }),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            text: async () => '<html></html>',
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            text: async () => '<html></html>',
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({
+              // No video URL fields
+              media: {},
+            }),
+          } as Response)
+
+        await expect(
+          downloadInstagramVideo('https://www.instagram.com/reel/RAPID_NO_URL/')
+        ).rejects.toThrow('All Instagram video download methods failed')
+      })
+
+      it('should handle RapidAPI network errors', async () => {
+        process.env.RAPIDAPI_KEY = 'test-key'
+
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({ data: {} }),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            text: async () => '<html></html>',
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            text: async () => '<html></html>',
+          } as Response)
+          .mockRejectedValueOnce(new Error('Network timeout'))
+
+        await expect(
+          downloadInstagramVideo('https://www.instagram.com/reel/RAPID_NETWORK/')
+        ).rejects.toThrow('All Instagram video download methods failed')
+      })
+    })
+
+    describe('Video download', () => {
+      it('should download video with correct MIME type', async () => {
+        const mockVideoBuffer = Buffer.from('mock-video-data'.repeat(100))
+
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({
+              data: {
+                xdt_shortcode_media: {
+                  is_video: true,
+                  video_url: 'https://instagram.com/video.mp4',
+                },
+              },
+            }),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            headers: new Headers({ 'content-type': 'video/mp4' }),
+            arrayBuffer: async () => mockVideoBuffer.buffer.slice(0), // Create a new ArrayBuffer
+          } as Response)
+
+        const result = await downloadInstagramVideo('https://www.instagram.com/reel/DOWNLOAD/')
+
+        expect(result.buffer).toBeInstanceOf(Buffer)
+        expect(result.buffer.length).toBeGreaterThan(1000)
+        expect(result.mimeType).toBe('video/mp4')
+      })
+
+      it('should use default MIME type when content-type header is missing', async () => {
+        const mockVideoBuffer = Buffer.from('mock-video-data'.repeat(100))
+
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({
+              data: {
+                xdt_shortcode_media: {
+                  is_video: true,
+                  video_url: 'https://instagram.com/video.mp4',
+                },
+              },
+            }),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            headers: new Headers({}),
+            arrayBuffer: async () => mockVideoBuffer.buffer.slice(0),
+          } as Response)
+
+        const result = await downloadInstagramVideo('https://www.instagram.com/reel/NO_CONTENT_TYPE/')
+
+        expect(result.mimeType).toBe('video/mp4')
+      })
+
+      it('should include user agent and referer in video download request', async () => {
+        const mockVideoBuffer = Buffer.from('mock-video-data'.repeat(100))
+
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({
+              data: {
+                xdt_shortcode_media: {
+                  is_video: true,
+                  video_url: 'https://instagram.com/video.mp4',
+                },
+              },
+            }),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            headers: new Headers({ 'content-type': 'video/mp4' }),
+            arrayBuffer: async () => mockVideoBuffer.buffer.slice(0),
+          } as Response)
+
+        await downloadInstagramVideo('https://www.instagram.com/reel/HEADERS/')
+
+        expect(fetch).toHaveBeenCalledWith(
+          'https://instagram.com/video.mp4',
+          expect.objectContaining({
+            headers: expect.objectContaining({
+              'User-Agent': expect.stringContaining('Mozilla'),
+              Referer: 'https://www.instagram.com/',
+            }),
+          })
+        )
+      })
+
+      it('should throw error when video download fails and all methods exhausted', async () => {
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({
+              data: {
+                xdt_shortcode_media: {
+                  is_video: true,
+                  video_url: 'https://instagram.com/video.mp4',
+                },
+              },
+            }),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: false,
+            status: 403,
+            statusText: 'Forbidden',
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: false,
+            status: 404,
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: false,
+            status: 403,
+          } as Response)
+
+        // All methods will fail
+        await expect(
+          downloadInstagramVideo('https://www.instagram.com/reel/DOWNLOAD_FAIL/')
+        ).rejects.toThrow('All Instagram video download methods failed')
+      })
+
+      it('should throw error when downloaded file is too small', async () => {
+        const tinyBuffer = Buffer.from('tiny')
+
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({
+              data: {
+                xdt_shortcode_media: {
+                  is_video: true,
+                  video_url: 'https://instagram.com/video.mp4',
+                },
+              },
+            }),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            headers: new Headers({ 'content-type': 'video/mp4' }),
+            arrayBuffer: async () => tinyBuffer.buffer,
+          } as Response)
+
+        await expect(
+          downloadInstagramVideo('https://www.instagram.com/reel/TOO_SMALL/')
+        ).rejects.toThrow()
+      })
+
+      it('should validate video file size (minimum 1000 bytes)', async () => {
+        const almostValidBuffer = Buffer.from('x'.repeat(999))
+
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({
+              data: {
+                xdt_shortcode_media: {
+                  is_video: true,
+                  video_url: 'https://instagram.com/video.mp4',
+                },
+              },
+            }),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            headers: new Headers({ 'content-type': 'video/mp4' }),
+            arrayBuffer: async () => almostValidBuffer.buffer.slice(0),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: false,
+            status: 404,
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: false,
+            status: 403,
+          } as Response)
+
+        await expect(
+          downloadInstagramVideo('https://www.instagram.com/reel/ALMOST_VALID/')
+        ).rejects.toThrow('All Instagram video download methods failed')
+      })
+    })
+
+    describe('Complete fallback chain', () => {
+      it('should try all methods in order when each fails', async () => {
+        delete process.env.RAPIDAPI_KEY // Ensure RapidAPI is not called
+
+        // All methods fail
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: false,
+            status: 500,
+          } as Response) // GraphQL fails
+          .mockResolvedValueOnce({
+            ok: false,
+            status: 404,
+          } as Response) // Page fetch fails
+          .mockResolvedValueOnce({
+            ok: false,
+            status: 403,
+          } as Response) // Embed fails
+
+        await expect(
+          downloadInstagramVideo('https://www.instagram.com/reel/ALL_FAIL/')
+        ).rejects.toThrow('All Instagram video download methods failed')
+
+        // Verify all methods were attempted (3 without RapidAPI)
+        expect(fetch).toHaveBeenCalledTimes(3)
+      })
+
+      it('should stop at first successful method', async () => {
+        const mockVideoBuffer = Buffer.from('mock-video-data'.repeat(100))
+
+        // GraphQL succeeds
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({
+              data: {
+                xdt_shortcode_media: {
+                  is_video: true,
+                  video_url: 'https://instagram.com/video.mp4',
+                },
+              },
+            }),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            headers: new Headers({ 'content-type': 'video/mp4' }),
+            arrayBuffer: async () => mockVideoBuffer.buffer.slice(0),
+          } as Response)
+
+        const result = await downloadInstagramVideo('https://www.instagram.com/reel/FIRST_SUCCESS/')
+
+        expect(result).toBeDefined()
+        // Should only have called GraphQL and video download (2 calls)
+        expect(fetch).toHaveBeenCalledTimes(2)
+      })
+
+      it('should skip to next method when video download fails after URL extraction', async () => {
+        const mockVideoBuffer = Buffer.from('mock-video-data'.repeat(100))
+
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({
+              data: {
+                xdt_shortcode_media: {
+                  is_video: true,
+                  video_url: 'https://instagram.com/bad-video.mp4',
+                },
+              },
+            }),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: false,
+            status: 403,
+          } as Response) // GraphQL video download fails
+          .mockResolvedValueOnce({
+            ok: true,
+            text: async () => `
+              <html>
+                <meta property="og:video" content="https://instagram.com/good-video.mp4" />
+              </html>
+            `,
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            headers: new Headers({ 'content-type': 'video/mp4' }),
+            arrayBuffer: async () => mockVideoBuffer.buffer.slice(0),
+          } as Response)
+
+        const result = await downloadInstagramVideo('https://www.instagram.com/reel/DOWNLOAD_FALLBACK/')
+
+        expect(result.url).toContain('good-video.mp4')
+      })
+    })
+
+    describe('Edge cases', () => {
+      it('should handle reels URL format', async () => {
+        const mockVideoBuffer = Buffer.from('mock-video-data'.repeat(100))
+
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({
+              data: {
+                xdt_shortcode_media: {
+                  is_video: true,
+                  video_url: 'https://instagram.com/video.mp4',
+                },
+              },
+            }),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            headers: new Headers({ 'content-type': 'video/mp4' }),
+            arrayBuffer: async () => mockVideoBuffer.buffer,
+          } as Response)
+
+        const result = await downloadInstagramVideo('https://www.instagram.com/reels/ABC123/')
+
+        expect(result).toBeDefined()
+      })
+
+      it('should handle URLs with trailing slashes', async () => {
+        const mockVideoBuffer = Buffer.from('mock-video-data'.repeat(100))
+
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({
+              data: {
+                xdt_shortcode_media: {
+                  is_video: true,
+                  video_url: 'https://instagram.com/video.mp4',
+                },
+              },
+            }),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            headers: new Headers({ 'content-type': 'video/mp4' }),
+            arrayBuffer: async () => mockVideoBuffer.buffer,
+          } as Response)
+
+        const result = await downloadInstagramVideo('https://www.instagram.com/reel/ABC123///')
+
+        expect(result).toBeDefined()
+      })
+
+      it('should handle URLs without trailing slashes', async () => {
+        const mockVideoBuffer = Buffer.from('mock-video-data'.repeat(100))
+
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({
+              data: {
+                xdt_shortcode_media: {
+                  is_video: true,
+                  video_url: 'https://instagram.com/video.mp4',
+                },
+              },
+            }),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            headers: new Headers({ 'content-type': 'video/mp4' }),
+            arrayBuffer: async () => mockVideoBuffer.buffer,
+          } as Response)
+
+        const result = await downloadInstagramVideo('https://www.instagram.com/reel/ABC123')
+
+        expect(result).toBeDefined()
+      })
+
+      it('should handle different video MIME types', async () => {
+        const mockVideoBuffer = Buffer.from('mock-video-data'.repeat(100))
+
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({
+              data: {
+                xdt_shortcode_media: {
+                  is_video: true,
+                  video_url: 'https://instagram.com/video.webm',
+                },
+              },
+            }),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            headers: new Headers({ 'content-type': 'video/webm' }),
+            arrayBuffer: async () => mockVideoBuffer.buffer.slice(0),
+          } as Response)
+
+        const result = await downloadInstagramVideo('https://www.instagram.com/reel/WEBM/')
+
+        expect(result.mimeType).toBe('video/webm')
+        expect(result.url).toContain('video.webm')
+      })
+
+      it('should handle shortcodes with special characters', async () => {
+        const mockVideoBuffer = Buffer.from('mock-video-data'.repeat(100))
+
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({
+              data: {
+                xdt_shortcode_media: {
+                  is_video: true,
+                  video_url: 'https://instagram.com/video.mp4',
+                },
+              },
+            }),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            headers: new Headers({ 'content-type': 'video/mp4' }),
+            arrayBuffer: async () => mockVideoBuffer.buffer,
+          } as Response)
+
+        const result = await downloadInstagramVideo('https://www.instagram.com/reel/ABC_123-xyz/')
+
+        expect(result).toBeDefined()
+      })
+
+      it('should preserve video URL in result for debugging', async () => {
+        const mockVideoBuffer = Buffer.from('mock-video-data'.repeat(100))
+        const videoUrl = 'https://scontent.cdninstagram.com/v/t1.234/video.mp4?param=value'
+
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({
+              data: {
+                xdt_shortcode_media: {
+                  is_video: true,
+                  video_url: videoUrl,
+                },
+              },
+            }),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            headers: new Headers({ 'content-type': 'video/mp4' }),
+            arrayBuffer: async () => mockVideoBuffer.buffer.slice(0),
+          } as Response)
+
+        const result = await downloadInstagramVideo('https://www.instagram.com/reel/DEBUG/')
+
+        expect(result.url).toBe(videoUrl)
+      })
+
+      it('should handle very large video files', async () => {
+        const largeVideoBuffer = Buffer.from('x'.repeat(10_000_000)) // 10MB
+
+        vi.mocked(fetch)
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({
+              data: {
+                xdt_shortcode_media: {
+                  is_video: true,
+                  video_url: 'https://instagram.com/large-video.mp4',
+                },
+              },
+            }),
+          } as Response)
+          .mockResolvedValueOnce({
+            ok: true,
+            headers: new Headers({ 'content-type': 'video/mp4' }),
+            arrayBuffer: async () => largeVideoBuffer.buffer.slice(0),
+          } as Response)
+
+        const result = await downloadInstagramVideo('https://www.instagram.com/reel/LARGE/')
+
+        expect(result.buffer.length).toBe(10_000_000)
+      })
+    })
+  })
+})

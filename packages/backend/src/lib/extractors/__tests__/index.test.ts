@@ -131,7 +131,6 @@ describe('Content Extraction Orchestrator', () => {
       }
 
       vi.mocked(instagramExtractor.extractInstagramContent).mockResolvedValue(mockResult)
-      vi.mocked(instagramVideo.isInstagramVideoUrl).mockReturnValue(false)
       vi.mocked(transcription.isTranscriptionAvailable).mockReturnValue(false)
 
       const result = await extractContent(instagramUrls.post)
@@ -532,7 +531,7 @@ describe('Content Extraction Orchestrator', () => {
       }
 
       vi.mocked(instagramExtractor.extractInstagramContent).mockResolvedValue(mockResult)
-      vi.mocked(instagramVideo.isInstagramVideoUrl).mockReturnValue(false)
+      vi.mocked(transcription.isTranscriptionAvailable).mockReturnValue(false)
 
       const result = await extractContent(instagramUrls.post)
 
@@ -553,6 +552,7 @@ describe('Content Extraction Orchestrator', () => {
       const mockVideoResult = {
         buffer: mockVideoBuffer,
         mimeType: 'video/mp4',
+        url: 'https://video.cdninstagram.com/video.mp4',
       }
 
       const mockTranscription = {
@@ -564,7 +564,8 @@ describe('Content Extraction Orchestrator', () => {
       vi.mocked(instagramExtractor.extractInstagramContent).mockResolvedValue(
         mockExtractedContent
       )
-      vi.mocked(instagramVideo.isInstagramVideoUrl).mockReturnValue(true)
+      // New API: isInstagramReelUrl for reels (always videos)
+      vi.mocked(instagramVideo.isInstagramReelUrl).mockReturnValue(true)
       vi.mocked(transcription.isTranscriptionAvailable).mockReturnValue(true)
       vi.mocked(instagramVideo.downloadInstagramVideo).mockResolvedValue(mockVideoResult)
       vi.mocked(transcription.transcribeBuffer).mockResolvedValue(mockTranscription)
@@ -589,7 +590,8 @@ describe('Content Extraction Orchestrator', () => {
       vi.mocked(instagramExtractor.extractInstagramContent).mockResolvedValue(
         mockExtractedContent
       )
-      vi.mocked(instagramVideo.isInstagramVideoUrl).mockReturnValue(true)
+      // New API: isInstagramReelUrl for reels
+      vi.mocked(instagramVideo.isInstagramReelUrl).mockReturnValue(true)
       vi.mocked(transcription.isTranscriptionAvailable).mockReturnValue(true)
       vi.mocked(instagramVideo.downloadInstagramVideo).mockRejectedValue(
         new Error('Download failed')
@@ -612,7 +614,16 @@ describe('Content Extraction Orchestrator', () => {
       }
 
       vi.mocked(instagramExtractor.extractInstagramContent).mockResolvedValue(mockResult)
-      vi.mocked(instagramVideo.isInstagramVideoUrl).mockReturnValue(false)
+      // New API: isInstagramReelUrl returns false for posts
+      vi.mocked(instagramVideo.isInstagramReelUrl).mockReturnValue(false)
+      // maybeInstagramVideo returns true for /p/ URLs, but getInstagramMediaInfo says it's an image
+      vi.mocked(instagramVideo.maybeInstagramVideo).mockReturnValue(true)
+      vi.mocked(instagramVideo.getInstagramMediaInfo).mockResolvedValue({
+        isVideo: false,
+        isCarousel: false,
+        thumbnailUrl: 'https://instagram.com/image.jpg',
+      })
+      vi.mocked(transcription.isTranscriptionAvailable).mockReturnValue(true)
 
       const result = await extractContent(instagramUrls.post)
 
@@ -622,6 +633,8 @@ describe('Content Extraction Orchestrator', () => {
     })
 
     it('should handle carousel posts with multiple media', async () => {
+      // extractInstagramContent already extracts all carousel URLs via extractMediaUrls()
+      // so we don't need handleInstagramTranscription to add them again
       const mockResult: ExtractedContent = {
         url: instagramUrls.post,
         source: 'instagram',
@@ -634,19 +647,40 @@ describe('Content Extraction Orchestrator', () => {
         ],
         rawMetadata: {
           instagram: {
-            postType: 'carousel',
+            postType: 'post',
             caption: 'My vacation photos!',
+            isCarousel: true,
+            carouselItems: [
+              { isVideo: false, url: 'https://instagram.com/media1.jpg' },
+              { isVideo: false, url: 'https://instagram.com/media2.jpg' },
+              { isVideo: false, url: 'https://instagram.com/media3.jpg' },
+            ],
           },
         },
       }
 
       vi.mocked(instagramExtractor.extractInstagramContent).mockResolvedValue(mockResult)
-      vi.mocked(instagramVideo.isInstagramVideoUrl).mockReturnValue(false)
+      // New API: isInstagramReelUrl returns false for posts
+      vi.mocked(instagramVideo.isInstagramReelUrl).mockReturnValue(false)
+      // maybeInstagramVideo returns true for /p/ URLs, getInstagramMediaInfo returns carousel
+      vi.mocked(instagramVideo.maybeInstagramVideo).mockReturnValue(true)
+      vi.mocked(instagramVideo.getInstagramMediaInfo).mockResolvedValue({
+        isVideo: false,
+        isCarousel: true,
+        thumbnailUrl: 'https://instagram.com/cover.jpg',
+        carouselItems: [
+          { isVideo: false, url: 'https://instagram.com/media1.jpg' },
+          { isVideo: false, url: 'https://instagram.com/media2.jpg' },
+          { isVideo: false, url: 'https://instagram.com/media3.jpg' },
+        ],
+      })
+      vi.mocked(transcription.isTranscriptionAvailable).mockReturnValue(true)
 
       const result = await extractContent(instagramUrls.post)
 
+      // Should have exactly 3 carousel images (no duplicates added by handleInstagramTranscription)
       expect(result?.mediaUrls).toHaveLength(3)
-      expect(result?.rawMetadata?.instagram?.postType).toBe('carousel')
+      expect(result?.rawMetadata?.instagram?.isCarousel).toBe(true)
     })
 
     it('should handle private posts', async () => {
@@ -682,7 +716,6 @@ describe('Content Extraction Orchestrator', () => {
       }
 
       vi.mocked(instagramExtractor.extractInstagramContent).mockResolvedValue(mockResult)
-      vi.mocked(instagramVideo.isInstagramVideoUrl).mockReturnValue(true)
       vi.mocked(transcription.isTranscriptionAvailable).mockReturnValue(false)
 
       const result = await extractContent(instagramUrls.reel)
@@ -1044,11 +1077,13 @@ describe('Content Extraction Orchestrator', () => {
       vi.mocked(instagramExtractor.extractInstagramContent).mockResolvedValue(
         mockExtractedContent
       )
-      vi.mocked(instagramVideo.isInstagramVideoUrl).mockReturnValue(true)
+      // New API: isInstagramReelUrl for reels
+      vi.mocked(instagramVideo.isInstagramReelUrl).mockReturnValue(true)
       vi.mocked(transcription.isTranscriptionAvailable).mockReturnValue(true)
       vi.mocked(instagramVideo.downloadInstagramVideo).mockResolvedValue({
         buffer: mockVideoBuffer,
         mimeType: 'video/mp4',
+        url: 'https://video.cdninstagram.com/video.mp4',
       })
       vi.mocked(transcription.transcribeBuffer).mockResolvedValue(mockTranscription)
 

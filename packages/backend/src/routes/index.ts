@@ -4,6 +4,7 @@ import { telegramRoutes } from './telegram'
 import { userRoutes } from './user'
 import { aiReplyRoutes } from './ai-reply'
 import { extensionRoutes } from './extension'
+import { adminRoutes } from './admin'
 
 export const routes = new Hono()
 
@@ -22,3 +23,4 @@ routes.route('/telegram', telegramRoutes)
 routes.route('/user', userRoutes)
 routes.route('/ai', aiReplyRoutes)
 routes.route('/extension', extensionRoutes)
+routes.route('/admin', adminRoutes)

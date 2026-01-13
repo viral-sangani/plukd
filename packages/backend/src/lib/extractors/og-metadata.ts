@@ -10,6 +10,15 @@
  */
 
 /**
+ * Log debug message only when DEBUG=true
+ */
+function debugLog(message: string): void {
+  if (process.env.DEBUG === 'true') {
+    console.log(message)
+  }
+}
+
+/**
  * Structured result from OG metadata extraction
  */
 export interface OGMetadata {
@@ -204,7 +213,7 @@ async function fetchHTML(url: string): Promise<string> {
  */
 export async function extractOGMetadata(url: string): Promise<OGMetadata | null> {
   try {
-    console.log(`[og-metadata] Extracting metadata from: ${url}`)
+    debugLog(`[og-metadata] Extracting metadata from: ${url}`)
 
     const html = await fetchHTML(url)
 
@@ -235,18 +244,18 @@ export async function extractOGMetadata(url: string): Promise<OGMetadata | null>
 
     // Return null if no metadata was found
     if (Object.keys(cleanedMetadata).length === 0) {
-      console.log(`[og-metadata] No metadata found for: ${url}`)
+      debugLog(`[og-metadata] No metadata found for: ${url}`)
       return null
     }
 
-    console.log(
+    debugLog(
       `[og-metadata] Extracted metadata: title="${cleanedMetadata.ogTitle || cleanedMetadata.pageTitle || 'none'}"`
     )
 
     return cleanedMetadata
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
-    console.error(`[og-metadata] Failed to extract metadata from ${url}: ${errorMessage}`)
+    console.error(`[og-metadata] Extraction failed: ${errorMessage}`)
     return null
   }
 }

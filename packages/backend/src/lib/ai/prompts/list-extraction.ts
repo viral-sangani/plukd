@@ -61,11 +61,13 @@ export function normalizeCategory(category: string): string {
  *
  * @param content - Extracted content (full, not truncated)
  * @param listIndicators - Pre-computed list indicators with estimated count
+ * @param hasImages - Whether the content includes images for multimodal analysis
  * @returns Prompt string for list extraction
  */
 export function buildListExtractionPrompt(
   content: ExtractedContent,
-  listIndicators: ListIndicators
+  listIndicators: ListIndicators,
+  hasImages?: boolean
 ): string {
   // Use full content - no truncation for list extraction
   const fullContent = content.content
@@ -76,6 +78,33 @@ export function buildListExtractionPrompt(
     ? `EXPECTED ITEMS: Approximately ${listIndicators.estimatedItemCount} items were detected. Ensure you extract ALL of them.`
     : 'EXPECTED ITEMS: Unknown count. Extract every item mentioned.'
 
+  // Add image/carousel-specific OCR instructions
+  const imageInstructions = hasImages ? `
+IMAGE/CAROUSEL OCR INSTRUCTIONS (CRITICAL):
+- If content includes carousel images, you MUST read text from EACH image using OCR
+- For "Top X Tools/Books/Movies" posts, each slide typically shows:
+  * Item number (e.g., "1/", "2/", "#1", "#2")
+  * Tool/item name (e.g., "Mixo.io", "Fireflies.ai")
+  * Description/tagline (e.g., "Launch websites in seconds")
+  * Sometimes a URL or category tag
+- Extract items from ALL visible images - do NOT skip any slides
+- If a title says "Top 10 AI Tools" and you only see 8 in text, check images for remaining items
+
+CAROUSEL EXTRACTION EXAMPLE:
+For an Instagram carousel titled "Top 10 AI Tools":
+- Slide 1 shows: "1/ Mixo.io - Launch websites in seconds"
+- Slide 2 shows: "2/ Fireflies.ai - Take online meeting notes"
+- Slide 3 shows: "3/ Perplexity - AI-powered search engine"
+
+Extract as:
+[
+  { "name": "Mixo.io", "description": "Launch websites in seconds", "category": "tool", "url": "https://mixo.io" },
+  { "name": "Fireflies.ai", "description": "Take online meeting notes", "category": "tool", "url": "https://fireflies.ai" },
+  { "name": "Perplexity", "description": "AI-powered search engine", "category": "tool", "url": "https://perplexity.ai" }
+]
+
+` : ''
+
   return `You are an expert at extracting structured lists from content. Your job is to extract EVERY item mentioned.
 
 TITLE: ${content.title}
@@ -83,7 +112,7 @@ SOURCE: ${content.source}
 AUTHOR: ${content.author || 'Unknown'}
 
 ${countHint}
-
+${imageInstructions}
 ---
 MAIN CONTENT:
 ${fullContent}
@@ -91,12 +120,12 @@ ${transcript ? `\n---\nTRANSCRIPT:\n${transcript}` : ''}
 ---
 
 EXTRACTION TASK:
-1. First, COUNT all distinct items/recommendations mentioned in the content
+1. First, COUNT all distinct items/recommendations mentioned in the content AND images
 2. Then, extract EACH item with the following structure:
    - name (REQUIRED): The exact name of the item as mentioned
    - description (REQUIRED): 1-2 sentences explaining what it is and WHY it's recommended
    - category: Normalize to one of: book, tool, app, movie, show, podcast, course, game, resource, tip, other
-   - url: Only include if explicitly mentioned in the content
+   - url: Only include if explicitly mentioned in the content or visible in images
 
 CATEGORY NORMALIZATION RULES:
 - ebook/audiobook/paperback → "book"
@@ -122,9 +151,11 @@ EXTRACTION CONFIDENCE:
 CRITICAL RULES:
 1. Extract EVERY item - do NOT summarize or skip any
 2. If content says "10 tools" or "7 movies", you MUST extract exactly that many
-3. Include context for WHY each item is recommended when available
-4. Do NOT invent items not mentioned in the content
-5. If an item appears multiple times, include it only once
+3. READ TEXT FROM ALL IMAGES - carousel slides often contain the actual item names
+4. Include context for WHY each item is recommended when available
+5. Do NOT invent items not mentioned in the content or images
+6. If an item appears multiple times, include it only once
+7. For tools/apps, infer URLs from names if obvious (e.g., "Mixo" → "https://mixo.io")
 
 Respond in JSON only:
 {

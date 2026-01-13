@@ -99,7 +99,7 @@ export const linkedinBookmark: Bookmark = createTestBookmark({
   author_url: 'https://www.linkedin.com/in/janesmith',
   content: 'After 10 years in tech leadership, here are my key learnings...',
   category: 'leadership',
-  tags: ['insight', 'career'],
+  tags: ['insight', 'analysis'],
   content_type: 'article',
 })
 

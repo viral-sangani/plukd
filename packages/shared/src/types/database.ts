@@ -84,6 +84,7 @@ export interface Database {
           telegram_chat_id: string | null
           telegram_username: string | null
           telegram_linked_at: string | null
+          is_admin: boolean
           created_at: string
           updated_at: string
         }
@@ -95,6 +96,7 @@ export interface Database {
           telegram_chat_id?: string | null
           telegram_username?: string | null
           telegram_linked_at?: string | null
+          is_admin?: boolean
           created_at?: string
           updated_at?: string
         }
@@ -106,6 +108,7 @@ export interface Database {
           telegram_chat_id?: string | null
           telegram_username?: string | null
           telegram_linked_at?: string | null
+          is_admin?: boolean
           created_at?: string
           updated_at?: string
         }
@@ -131,6 +134,7 @@ export interface Database {
           resource_layout_hint: string | null
           processing_status: ProcessingStatus
           processing_error: string | null
+          extraction_error: string | null
           raw_metadata: Record<string, unknown> | null
           is_archived: boolean
           created_at: string
@@ -156,6 +160,7 @@ export interface Database {
           resource_layout_hint?: string | null
           processing_status?: ProcessingStatus
           processing_error?: string | null
+          extraction_error?: string | null
           raw_metadata?: Record<string, unknown> | null
           is_archived?: boolean
           created_at?: string
@@ -181,6 +186,7 @@ export interface Database {
           resource_layout_hint?: string | null
           processing_status?: ProcessingStatus
           processing_error?: string | null
+          extraction_error?: string | null
           raw_metadata?: Record<string, unknown> | null
           is_archived?: boolean
           created_at?: string

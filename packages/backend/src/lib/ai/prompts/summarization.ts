@@ -1,5 +1,5 @@
 import type { ExtractedContent, ContentSource, ExtractedResource, ContentType, ResourceLayoutHint } from '@plukd/shared'
-import type { ClassificationResult, ListIndicators } from './classification'
+import type { ClassificationResult, ListIndicators, CarouselInfo } from './classification'
 
 /**
  * Content truncation limits for summarization
@@ -132,23 +132,94 @@ If the content contains recommendations or lists (movies, books, products, tools
 }
 
 /**
- * Get image analysis instructions for summarization
+ * Get image analysis instructions for summarization with explicit OCR requirements
  */
-function getImageAnalysisInstructions(): string {
-  return `
-IMAGE CONTENT ANALYSIS:
-- Carefully analyze all images for informational content
-- Extract text from infographics, screenshots, and guides
-- Include key points from images in your summary
-- If images contain lists (books, tools, resources, steps):
-  - Extract each item to extractedResources
-  - Include names, descriptions where visible
-- Describe visual content that adds context (charts, diagrams)`
+function getImageAnalysisInstructions(carouselInfo?: CarouselInfo): string {
+  const baseInstructions = `
+IMAGE CONTENT ANALYSIS (OCR REQUIRED):
+- CRITICAL: Read and extract ALL visible text from images using OCR
+- For carousel/multi-image posts with lists (tools, books, movies, etc.):
+  * Each slide typically shows 1-5 items with name + description
+  * Extract EVERY item name visible across ALL images
+  * Include item descriptions if shown in the image
+  * Do NOT say "names are in images" - actually READ and EXTRACT them!
+- Text extraction targets:
+  * Tool/app names and their taglines (e.g., "Mixo.io - Launch websites in seconds")
+  * Book/movie titles with descriptions
+  * Numbered lists and their content
+  * URLs or website names visible in images
+- Include ALL extracted text in the extractedResources array
+- If text is unclear, extract what you can read and note uncertainty
+- Describe visual elements that add context (charts, diagrams, screenshots)`
+
+  // Add carousel-specific instructions if applicable
+  if (carouselInfo?.isCarousel) {
+    const hiddenSlides = carouselInfo.totalImages - carouselInfo.visibleImages
+    const hiddenNote = hiddenSlides > 0
+      ? `\n- NOTE: This carousel has ${carouselInfo.totalImages} total slides but only ${carouselInfo.visibleImages} are visible. Extract ALL items from the ${carouselInfo.visibleImages} visible images.`
+      : ''
+
+    return baseInstructions + `
+
+*** CRITICAL CAROUSEL EXTRACTION (${carouselInfo.totalImages} total slides, ${carouselInfo.visibleImages} visible) ***
+
+IMPORTANT: The Instagram caption may be MINIMAL or GENERIC (e.g., "Save these!", "Must-have tools!", "Check out these!").
+The ACTUAL CONTENT is in the CAROUSEL IMAGES. You MUST use OCR to extract the real content.
+
+This is an Instagram carousel post - analyze EACH visible image separately using OCR:
+- For posts like "Top 31 AI Tools", each slide shows one or more tools
+- For movie/book lists, each slide shows titles with ratings or descriptions
+- For tips/advice, each slide contains numbered tips or bullet points
+
+COMMON CAROUSEL FORMATS (extract ALL items matching these patterns):
+- "1/ ToolName - Description" or "Tool #1: Name"
+- "1. Movie Title (Year) - Brief description"
+- "Tip #1: Actionable advice here"
+- "Book: Title by Author - Why it's recommended"
+- Large text with tool/app name + smaller description below
+
+EXTRACTION REQUIREMENTS:
+- Extract from EVERY visible carousel image - do not skip ANY slide
+- For each item extract: number/position, name/title, description/tagline
+- Add EVERY extracted item to extractedResources with name, description, and category
+- If an image shows multiple items, extract ALL of them
+- If text is partially visible, extract what you CAN read${hiddenNote}
+
+EXAMPLE INPUT: Carousel titled "31 AI Tools I Tested" with caption "Save these!"
+EXAMPLE OUTPUT (what you should produce):
+extractedResources: [
+  {"name": "Mixo.io", "description": "Launch websites in seconds with AI", "category": "tool"},
+  {"name": "Fireflies.ai", "description": "Automatically transcribe and summarize meetings", "category": "tool"},
+  {"name": "Tome", "description": "AI-powered presentation creator", "category": "tool"},
+  {"name": "Perplexity", "description": "AI search engine with citations", "category": "tool"},
+  {"name": "Claude", "description": "Advanced AI assistant for coding and analysis", "category": "tool"},
+  ... (continue for ALL visible items)
+]
+
+DO NOT just say "carousel contains AI tools" - actually READ and LIST each one!`
+  }
+
+  return baseInstructions + `
+
+EXAMPLE: Instagram carousel "Top 10 AI Tools"
+If images show:
+- Slide 1: "1/ Mixo.io - Launch websites in seconds"
+- Slide 2: "2/ Fireflies.ai - Take online meeting notes"
+Extract each as a resource with name and description.
+
+CRITICAL: Never say "the items are shown in the images" - use OCR to actually extract and list them!`
 }
 
 /**
  * Check if content extraction effectively failed
  * (content is empty, minimal, or just a placeholder)
+ *
+ * NOTE: This function is now primarily used as a safety check.
+ * The main content sufficiency check is done in process.ts via isContentSufficient()
+ * before AI processing is attempted. This function serves as a fallback
+ * in case content somehow passes the initial check but is still insufficient.
+ *
+ * @deprecated Use isContentSufficient() from process.ts for the primary check
  */
 function isExtractionFailed(content: ExtractedContent): boolean {
   const contentText = content.content?.trim() || ''
@@ -172,24 +243,31 @@ function isExtractionFailed(content: ExtractedContent): boolean {
  * @param classification - Results from Pass 1 classification
  * @param hasImages - Whether the content includes images for multimodal analysis
  * @param listIndicators - Optional list indicators for additional context
+ * @param carouselInfo - Optional carousel information for enhanced image analysis
  * @returns Prompt string for summarization
  */
 export function buildSummarizationPrompt(
   content: ExtractedContent,
   classification: ClassificationResult,
   hasImages?: boolean,
-  listIndicators?: ListIndicators
+  listIndicators?: ListIndicators,
+  carouselInfo?: CarouselInfo
 ): string {
-  // Check if extraction failed - return simple fallback prompt
+  // Check if extraction failed - this should rarely happen now since
+  // process.ts checks content sufficiency first. This is a safety fallback.
   if (isExtractionFailed(content)) {
-    return `Content extraction failed for this URL. Return a simple fallback response.
+    // Return a minimal prompt that won't generate unhelpful AI summaries
+    // The bookmark processor should handle this case and use INSUFFICIENT_CONTENT_BLURB instead
+    return `Content extraction returned minimal data for this URL. Generate a neutral placeholder response.
 
 URL: ${content.url}
 Source: ${content.source}
 Title: ${content.title}
 
+IMPORTANT: Do NOT say "we were unable to" or apologize. Simply acknowledge the content.
+
 Respond in JSON only:
-{"blurb":"Could not extract content from this URL.","summary":"• **Content unavailable** - The page content could not be automatically extracted.\\n• **Visit directly** - Please click the link to view the original content."}`
+{"blurb":"Saved from ${content.source}. Visit the link for full content.","summary":"• **Link saved** - Content available at original URL.\\n• **Source**: ${content.source}"}`
   }
 
   // Use adaptive truncation - more content for list type
@@ -223,7 +301,7 @@ Respond in JSON only:
     content.source
   )
 
-  const imageInstructions = hasImages ? getImageAnalysisInstructions() : ''
+  const imageInstructions = hasImages ? getImageAnalysisInstructions(carouselInfo) : ''
 
   const input: SummarizationInput = {
     title: content.title,

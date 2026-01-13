@@ -42,6 +42,8 @@ export async function startWorker(): Promise<Worker> {
     },
     {
       connection: workerConnection,
+      // Process 5 jobs concurrently for efficient bulk embedding regeneration
+      // Each job handles content extraction and AI processing for a bookmark
       concurrency: 5,
     }
   )
